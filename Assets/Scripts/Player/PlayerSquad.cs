@@ -15,6 +15,7 @@ namespace SectorCleanse.Player
     ///    the player is hit only once every soldier is down.
     ///  * Soldiers lost during a run are only gone for that run; the barracks keeps them.
     ///  * The round ends when the player falls.
+    ///  * Shield charges (a buff) each block one whole breach.
     /// </summary>
     [DisallowMultipleComponent]
     public class PlayerSquad : MonoBehaviour, IRunStatePersistent
@@ -38,6 +39,12 @@ namespace SectorCleanse.Player
         public IReadOnlyList<Soldier> Soldiers => _soldiers;
 
         public double PlayerHp { get; private set; }
+
+        /// <summary>Breaches that will be blocked completely (Shield buff).</summary>
+        public int ShieldCharges { get; private set; }
+
+        /// <summary>Raised when a shield charge blocks a breach.</summary>
+        public event Action BreachBlocked;
         public double PlayerMaxHp => playerMaxHp;
         public bool IsAlive => PlayerHp > 0;
 
@@ -97,6 +104,14 @@ namespace SectorCleanse.Player
         {
             if (amount <= 0 || !IsAlive) return;
 
+            if (ShieldCharges > 0)
+            {
+                ShieldCharges--;
+                BreachBlocked?.Invoke();
+                SquadChanged?.Invoke();
+                return;
+            }
+
             while (amount > 0 && _soldiers.Count > 0)
             {
                 Soldier weakest = _soldiers[_soldiers.Count - 1]; // List is kept strongest-first.
@@ -123,6 +138,25 @@ namespace SectorCleanse.Player
             SquadChanged?.Invoke();
         }
 
+        /// <summary>Add shield charges (each blocks one breach).</summary>
+        public void AddShield(int charges = 1)
+        {
+            if (charges <= 0 || !IsAlive) return;
+            ShieldCharges += charges;
+            SquadChanged?.Invoke();
+        }
+
+        /// <summary>Tier of the strongest living soldier, or -1 if there are none.</summary>
+        public int BestTier
+        {
+            get
+            {
+                int best = -1;
+                foreach (Soldier s in _soldiers) best = Mathf.Max(best, s.Tier);
+                return best;
+            }
+        }
+
         /// <summary>Remove soldiers outright, weakest first (e.g. "Compromised Position").</summary>
         public void RemoveSoldiers(int count)
         {
@@ -139,6 +173,7 @@ namespace SectorCleanse.Player
         public void SaveRunState(RunSaveData data)
         {
             data.playerHp = PlayerHp;
+            data.shields = ShieldCharges;
             data.soldiers.Clear();
             foreach (Soldier s in _soldiers) data.soldiers.Add(new SavedSoldier(s.Tier, s.Hp));
         }
@@ -158,6 +193,7 @@ namespace SectorCleanse.Player
             }
             SortStrongestFirst();
             PlayerHp = data.playerHp > 0 ? data.playerHp : playerMaxHp;
+            ShieldCharges = Mathf.Max(0, data.shields);
             SquadChanged?.Invoke();
         }
 
@@ -179,6 +215,7 @@ namespace SectorCleanse.Player
             }
             SortStrongestFirst();
             PlayerHp = playerMaxHp;
+            ShieldCharges = 0;
             SquadChanged?.Invoke();
         }
 

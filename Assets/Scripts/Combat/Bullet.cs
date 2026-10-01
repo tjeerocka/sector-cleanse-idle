@@ -4,7 +4,8 @@ using UnityEngine;
 namespace SectorCleanse.Combat
 {
     /// <summary>
-    /// Flies straight up and damages the first enemy it overlaps.
+    /// Flies straight up and damages the first enemy it overlaps. Bullets fired while
+    /// the FIRE button is held are "manual": they pay more and can hurt elites.
     /// Uses a swept overlap test against <see cref="Enemy.Active"/> so fast bullets
     /// can't skip over an enemy on a low-framerate frame.
     /// </summary>
@@ -13,10 +14,12 @@ namespace SectorCleanse.Combat
         private double _damage;
         private float _speed;
         private float _maxY;
+        private bool _manual;
 
-        public void Initialize(double damage, float speed, float maxY)
+        public void Initialize(double damage, float speed, float maxY, bool manual)
         {
             _damage = damage;
+            _manual = manual;
             _speed = speed;
             _maxY = maxY;
         }
@@ -52,7 +55,7 @@ namespace SectorCleanse.Combat
                 bool overlapY = e.y + enemy.HalfHeight >= sweepBottom && e.y - enemy.HalfHeight <= sweepTop;
                 if (!overlapX || !overlapY) continue;
 
-                enemy.TakeDamage(_damage);
+                enemy.TakeHit(_damage, _manual); // Absorbed even if the enemy is immune.
                 return true;
             }
             return false;

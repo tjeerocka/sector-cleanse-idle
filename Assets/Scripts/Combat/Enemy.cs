@@ -8,12 +8,13 @@ namespace SectorCleanse.Combat
     /// <summary>
     /// A graybox enemy: moves straight down its lane and shows its remaining HP.
     ///
-    /// * Killed by bullets → pays $1 per wave number ($1 on wave 1, $2 on wave 2…).
+    /// * Killed by bullets → pays $1 per wave number ($1 on wave 1, $2 on wave 2…),
+    ///   doubled for kills made while holding FIRE (see <see cref="ManualFire"/>).
     /// * Reaches the player line → if the player is standing in this lane, the squad
     ///   loses soldiers equal to the enemy's remaining HP. Either way it despawns.
     ///
     /// All live enemies are tracked in <see cref="Active"/> so bullets can do simple
-    /// overlap checks without needing physics.
+    /// overlap checks without needing physics. <see cref="Elite"/> derives from this.
     /// </summary>
     public class Enemy : MonoBehaviour
     {
@@ -33,10 +34,10 @@ namespace SectorCleanse.Combat
         public float HalfWidth => 0.5f * transform.lossyScale.x;
         public float HalfHeight => 0.5f * transform.lossyScale.y;
 
-        private float _speed;
-        private LaneSystem _lanes;
-        private PlayerController _player;
-        private PlayerSquad _squad;
+        protected float Speed;
+        protected LaneSystem Lanes;
+        protected PlayerController TrackedPlayer;
+        protected PlayerSquad TrackedSquad;
         private TextMesh _label;
         private bool _despawned;
 
@@ -50,10 +51,10 @@ namespace SectorCleanse.Combat
             Lane = lane;
             MaxHp = System.Math.Max(1d, hp);
             Hp = MaxHp;
-            _speed = speed;
-            _lanes = lanes;
-            _player = player;
-            _squad = squad;
+            Speed = speed;
+            Lanes = lanes;
+            TrackedPlayer = player;
+            TrackedSquad = squad;
 
             CreateLabel();
             RefreshLabel();
@@ -69,16 +70,23 @@ namespace SectorCleanse.Combat
 
         private void Update()
         {
-            if (IsDead || !_lanes) return;
+            if (IsDead || !Lanes) return;
             if (GameManager.Instance && !GameManager.Instance.IsPlaying) return; // Freeze on game over.
-
-            transform.position += Vector3.down * (_speed * Time.deltaTime);
-
-            if (transform.position.y <= _lanes.PlayerLineWorldY) ReachPlayerLine();
+            Tick(Time.deltaTime);
         }
 
-        /// <summary>Apply weapon damage. Kills (and pays out) at 0 HP.</summary>
-        public void TakeDamage(double amount)
+        /// <summary>Per-frame behaviour while alive and the round is running.</summary>
+        protected virtual void Tick(float dt)
+        {
+            transform.position += Vector3.down * (Speed * dt);
+            if (transform.position.y <= Lanes.PlayerLineWorldY) ReachPlayerLine();
+        }
+
+        /// <summary>A bullet hit this enemy. <paramref name="manual"/> = fired while holding FIRE.</summary>
+        public virtual void TakeHit(double amount, bool manual) => TakeDamage(amount, manual);
+
+        /// <summary>Apply damage. Kills (and pays out) at 0 HP.</summary>
+        public void TakeDamage(double amount, bool manual = false)
         {
             if (IsDead || amount <= 0) return;
 
@@ -87,9 +95,15 @@ namespace SectorCleanse.Combat
 
             if (Hp <= 0)
             {
-                if (GameManager.Instance) GameManager.Instance.AddRoundMoney(GameManager.Instance.KillReward);
+                OnKilled(manual);
                 Destroy(gameObject);
             }
+        }
+
+        /// <summary>Pay out. Manual kills pay <see cref="ManualFire.MoneyBoost"/>×.</summary>
+        protected virtual void OnKilled(bool manual)
+        {
+            if (GameManager.Instance) GameManager.Instance.AddKillReward(manual ? ManualFire.MoneyBoost : 1f);
         }
 
         /// <summary>Remove without reward or damage (round reset).</summary>
@@ -99,10 +113,10 @@ namespace SectorCleanse.Combat
             Destroy(gameObject);
         }
 
-        private void ReachPlayerLine()
+        protected virtual void ReachPlayerLine()
         {
             // Only hurts the squad if the player is standing in this lane.
-            if (_player && _squad && _player.CurrentLane == Lane) _squad.TakeDamage(Hp);
+            if (TrackedPlayer && TrackedSquad && TrackedPlayer.CurrentLane == Lane) TrackedSquad.TakeDamage(Hp);
             Despawn();
         }
 
@@ -110,31 +124,39 @@ namespace SectorCleanse.Combat
         // HP label (graybox: built-in TextMesh, no assets needed)
         // ------------------------------------------------------------------
 
-        private void CreateLabel()
+        protected void CreateLabel()
         {
             if (_label) return;
+            _label = CreateWorldText("HP", Vector3.zero, 0.08f, Color.white);
+        }
+
+        protected virtual void RefreshLabel()
+        {
+            if (_label) _label.text = NumberFormat.Short(System.Math.Ceiling(Hp));
+        }
+
+        /// <summary>A world-space text label child (graybox UI on enemies).</summary>
+        protected TextMesh CreateWorldText(string name, Vector3 localPosition, float characterSize, Color color)
+        {
             if (!_labelFont) _labelFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
-            var go = new GameObject("HP");
+            var go = new GameObject(name);
             go.transform.SetParent(transform, false);
+            go.transform.localPosition = localPosition;
 
-            _label = go.AddComponent<TextMesh>();
-            _label.font = _labelFont;
-            _label.anchor = TextAnchor.MiddleCenter;
-            _label.alignment = TextAlignment.Center;
-            _label.fontSize = 64;
-            _label.characterSize = 0.08f;
-            _label.fontStyle = FontStyle.Bold;
-            _label.color = Color.white;
+            var text = go.AddComponent<TextMesh>();
+            text.font = _labelFont;
+            text.anchor = TextAnchor.MiddleCenter;
+            text.alignment = TextAlignment.Center;
+            text.fontSize = 64;
+            text.characterSize = characterSize;
+            text.fontStyle = FontStyle.Bold;
+            text.color = color;
 
             var meshRenderer = go.GetComponent<MeshRenderer>();
             meshRenderer.sharedMaterial = _labelFont.material;
             meshRenderer.sortingOrder = 20;
-        }
-
-        private void RefreshLabel()
-        {
-            if (_label) _label.text = NumberFormat.Short(System.Math.Ceiling(Hp));
+            return text;
         }
     }
 }

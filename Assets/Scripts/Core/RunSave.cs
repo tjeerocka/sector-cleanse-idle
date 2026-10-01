@@ -8,11 +8,31 @@ namespace SectorCleanse.Core
     [Serializable]
     public class RunSaveData
     {
-        public float roundTime;
+        public int wave;          // 0 in saves from before elites (derive from roundTime).
+        public float roundTime;   // Total seconds played (display only).
+        public float waveTime;    // Progress through the current wave's normal phase.
         public int roundMoney;
         public double playerHp;
         public float playerX;
+        public int shields;
         public List<SavedSoldier> soldiers = new List<SavedSoldier>();
+        public List<SavedEffect> effects = new List<SavedEffect>();
+    }
+
+    /// <summary>An active buff/debuff: its type (as int, see Combat.EffectType) and seconds left.</summary>
+    [Serializable]
+    public struct SavedEffect
+    {
+        public int type;
+        public float remaining;
+        public float duration;
+
+        public SavedEffect(int type, float remaining, float duration)
+        {
+            this.type = type;
+            this.remaining = remaining;
+            this.duration = duration;
+        }
     }
 
     [Serializable]

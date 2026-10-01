@@ -10,10 +10,13 @@ namespace SectorCleanse.Combat
     /// and, if a <see cref="SquadFormation"/> is present, one from every soldier in
     /// the same volley. Each bullet carries its shooter's damage.
     ///
-    /// Bullet damage: (unit base + permanent shop bonus) × per-round multiplier.
+    /// Bullet damage: (unit base + permanent shop bonus) × buff multiplier × manual boost.
     ///  * Unit base: the player's base damage, or 5^tier for a soldier.
     ///  * Shop bonus: set by the UpgradeShop via <see cref="SetUpgradeBonuses"/>.
-    ///  * Multipliers: buffs/debuffs such as "Lowered Fire Rate"; reset each round.
+    ///  * Multipliers: buffs/debuffs (set by RunEffects); reset each round.
+    ///  * Manual boost: while the FIRE button is held (<see cref="ManualFire"/>), the
+    ///    whole squad fires faster and harder, and its bullets are tagged "manual"
+    ///    (they pay more and can hurt elites).
     /// </summary>
     [DisallowMultipleComponent]
     public class Weapon : MonoBehaviour
@@ -33,6 +36,7 @@ namespace SectorCleanse.Combat
         [SerializeField] private Vector2 bulletSize = new Vector2(0.15f, 0.4f);
         [SerializeField] private Sprite bulletSprite;
         [SerializeField] private Color bulletColor = new Color(1f, 0.9f, 0.3f);
+        [SerializeField] private Color manualBulletColor = new Color(0.4f, 0.95f, 1f);
 
         [Tooltip("Max horizontal distance between a soldier's bullet and the player's column.")]
         [SerializeField, Min(0f)] private float soldierBulletSpread = 0.3f;
@@ -43,8 +47,36 @@ namespace SectorCleanse.Combat
         /// <summary>Temporary fire-rate modifier (buffs / "Lowered Fire Rate"). Reset to 1 each round.</summary>
         public float FireRateMultiplier { get; set; } = 1f;
 
-        /// <summary>Damage of one bullet fired by a unit with the given base damage.</summary>
-        public double DamageFor(double unitBaseDamage) => (unitBaseDamage + _bonusDamage) * DamageMultiplier;
+        /// <summary>No firing at all while true ("Jammed" debuff).</summary>
+        public bool Suppressed { get; set; }
+
+        /// <summary>The hold-to-fire boost (optional, on the same object).</summary>
+        public ManualFire Manual => _manual;
+
+        private float ManualDamage => _manual ? _manual.DamageMultiplier : 1f;
+        private float ManualRate => _manual ? _manual.FireRateMultiplier : 1f;
+
+        /// <summary>Damage of one bullet fired by a unit with the given base damage (all multipliers).</summary>
+        public double DamageFor(double unitBaseDamage) =>
+            (unitBaseDamage + _bonusDamage) * DamageMultiplier * ManualDamage;
+
+        /// <summary>
+        /// Damage per second of the whole squad with shop upgrades but without buffs or
+        /// the manual boost. Elites size their HP from this.
+        /// </summary>
+        public double BaseSquadDps
+        {
+            get
+            {
+                double volley = baseDamage + _bonusDamage;
+                if (_formation)
+                {
+                    foreach (SquadFormation.Unit unit in _formation.Units)
+                        volley += Barracks.PowerOfTier(unit.Tier) + _bonusDamage;
+                }
+                return volley * (baseFireRate + _bonusFireRate);
+            }
+        }
 
         /// <summary>Damage of the player's own bullet.</summary>
         public double PlayerDamage => DamageFor(baseDamage);
@@ -72,13 +104,14 @@ namespace SectorCleanse.Combat
             return total;
         }
 
-        public float FireRate => Mathf.Max(0.1f, (baseFireRate + _bonusFireRate) * FireRateMultiplier);
+        public float FireRate => Mathf.Max(0.1f, (baseFireRate + _bonusFireRate) * FireRateMultiplier * ManualRate);
         public float BulletSpeed => bulletSpeed;
 
         private LaneSystem Lanes => laneSystem ? laneSystem : LaneSystem.Instance;
 
         private Transform _bulletContainer;
         private SquadFormation _formation;
+        private ManualFire _manual;
         private float _cooldown;
         private int _bonusDamage;
         private float _bonusFireRate;
@@ -90,6 +123,7 @@ namespace SectorCleanse.Combat
         private void Awake()
         {
             _formation = GetComponent<SquadFormation>();
+            _manual = GetComponent<ManualFire>();
         }
 
         private void OnEnable()
@@ -100,13 +134,20 @@ namespace SectorCleanse.Combat
         private void OnDisable()
         {
             if (GameManager.Instance) GameManager.Instance.RoundStarted -= ResetForRound;
+
+            // Back in the menu: show plain stats (a continued run re-applies its effects).
+            DamageMultiplier = 1f;
+            FireRateMultiplier = 1f;
+            Suppressed = false;
         }
 
         private void Update()
         {
             if (GameManager.Instance && !GameManager.Instance.IsPlaying) return;
+            if (Suppressed) return;
 
-            _cooldown -= Time.deltaTime;
+            // Never wait longer than the current rate allows (pressing FIRE takes effect at once).
+            _cooldown = Mathf.Min(_cooldown - Time.deltaTime, 1f / FireRate);
             if (_cooldown > 0f) return;
 
             FireVolley();
@@ -139,6 +180,7 @@ namespace SectorCleanse.Combat
         {
             DamageMultiplier = 1f;
             FireRateMultiplier = 1f;
+            Suppressed = false;
             _cooldown = 0f;
 
             if (!_bulletContainer) return;
@@ -149,7 +191,8 @@ namespace SectorCleanse.Combat
         private void FireVolley()
         {
             Vector3 playerPos = transform.position;
-            FireBullet(playerPos + Vector3.up * 0.5f, PlayerDamage);
+            bool manual = _manual && _manual.IsFiring;
+            FireBullet(playerPos + Vector3.up * 0.5f, PlayerDamage, manual);
 
             if (!_formation) return;
             var units = _formation.Units;
@@ -159,11 +202,11 @@ namespace SectorCleanse.Combat
                 // hits what the player is lined up with.
                 Vector3 origin = units[i].Transform.position + Vector3.up * 0.2f;
                 origin.x = playerPos.x + Mathf.Clamp(origin.x - playerPos.x, -soldierBulletSpread, soldierBulletSpread);
-                FireBullet(origin, DamageFor(Barracks.PowerOfTier(units[i].Tier)));
+                FireBullet(origin, DamageFor(Barracks.PowerOfTier(units[i].Tier)), manual);
             }
         }
 
-        private void FireBullet(Vector3 origin, double damage)
+        private void FireBullet(Vector3 origin, double damage, bool manual)
         {
             var go = new GameObject("Bullet");
             go.transform.SetParent(GetBulletContainer(), false);
@@ -172,11 +215,11 @@ namespace SectorCleanse.Combat
 
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sprite = bulletSprite;
-            sr.color = bulletColor;
+            sr.color = manual ? manualBulletColor : bulletColor;
             sr.sortingOrder = 8;
 
             float maxY = Lanes ? Lanes.SpawnLineWorldY + 1f : transform.position.y + 20f;
-            go.AddComponent<Bullet>().Initialize(damage, bulletSpeed, maxY);
+            go.AddComponent<Bullet>().Initialize(damage, bulletSpeed, maxY, manual);
         }
 
         /// <summary>

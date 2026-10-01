@@ -123,7 +123,7 @@ namespace SectorCleanse.UI
                 : "";
             string highscore = gm ? $"{player}BEST WAVE {gm.BestWave}   BEST RUN ${gm.BestRunMoney}" : player;
             string runLine = hasRun
-                ? $"RUN IN PROGRESS: WAVE {(gm ? gm.WaveAt(saved.roundTime) : 1)}, +${saved.roundMoney}, {saved.soldiers.Count} SOLDIERS LEFT"
+                ? $"RUN IN PROGRESS: WAVE {GameManager.WaveOf(saved)}, +${saved.roundMoney}, {saved.soldiers.Count} SOLDIERS LEFT"
                 : $"NEXT RUN STARTS AT WAVE {(gm ? gm.StartWave : 1)} (CHECKPOINT EVERY {(gm ? gm.CheckpointEvery : 5)} WAVES)";
 
             statsLabel.text =

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using SectorCleanse.Core;
 using UnityEngine;
+using UnityEngine.EventSystems;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -20,6 +22,10 @@ namespace SectorCleanse.Player
     ///  * Keyboard: hold A / D or Left / Right arrows.
     ///  * Mouse / touch: press and drag horizontally anywhere on screen. Movement is
     ///    relative to the drag, so the finger never has to cover the player.
+    ///
+    /// Multi-touch: every finger is tracked separately. A finger that goes down on a
+    /// button (FIRE, pause) never steers, so you can drag with one thumb while
+    /// holding FIRE with the other.
     /// </summary>
     [DisallowMultipleComponent]
     public class PlayerController : MonoBehaviour, IRunStatePersistent
@@ -49,7 +55,19 @@ namespace SectorCleanse.Player
 
         private LaneSystem Lanes => laneSystem ? laneSystem : LaneSystem.Instance;
 
-        private bool _dragging;
+        private const int NoPointer = int.MinValue;
+        private const int MousePointer = -1;
+
+        private struct PointerSample
+        {
+            public int Id;
+            public Vector2 Position;
+            public bool Began;
+        }
+
+        private readonly List<PointerSample> _pointers = new List<PointerSample>();
+        private readonly List<RaycastResult> _uiHits = new List<RaycastResult>();
+        private int _dragPointer = NoPointer;
         private float _lastPointerWorldX;
 
         // ------------------------------------------------------------------
@@ -69,7 +87,7 @@ namespace SectorCleanse.Player
         {
             if (GameManager.Instance) GameManager.Instance.RoundStarted -= HandleRoundStarted;
             RunSave.Unregister(this);
-            _dragging = false;
+            _dragPointer = NoPointer;
         }
 
         private void Start()
@@ -89,7 +107,7 @@ namespace SectorCleanse.Player
             bool canControl = !GameManager.Instance || GameManager.Instance.IsPlaying;
             if (!canControl)
             {
-                _dragging = false;
+                _dragPointer = NoPointer;
                 return;
             }
 
@@ -107,7 +125,7 @@ namespace SectorCleanse.Player
         public void SnapToLane(int lane)
         {
             if (!Lanes) return;
-            _dragging = false;
+            _dragPointer = NoPointer;
             SetX(Lanes.GetLaneX(lane));
         }
 
@@ -116,7 +134,7 @@ namespace SectorCleanse.Player
         public void LoadRunState(RunSaveData data)
         {
             if (!Lanes) return;
-            _dragging = false;
+            _dragPointer = NoPointer;
             SetX(data.playerX);
         }
 
@@ -158,40 +176,115 @@ namespace SectorCleanse.Player
             return axis;
         }
 
-        /// <summary>World-space horizontal distance the pointer moved this frame while held.</summary>
+        /// <summary>World-space horizontal distance the steering finger (or mouse) moved this frame.</summary>
         private float ReadDragDelta()
         {
-            bool pressed;
-            Vector2 screenPosition;
+            CollectPointers();
+
+            // Keep following the finger that started the drag, as long as it is down.
+            if (_dragPointer != NoPointer)
+            {
+                int index = _pointers.FindIndex(p => p.Id == _dragPointer);
+                if (index >= 0)
+                {
+                    float pointerX = ScreenToWorldX(_pointers[index].Position);
+                    float delta = pointerX - _lastPointerWorldX;
+                    _lastPointerWorldX = pointerX;
+                    return delta;
+                }
+                _dragPointer = NoPointer;
+            }
+
+            // A new drag can only start with a finger that just went down outside any button.
+            foreach (PointerSample pointer in _pointers)
+            {
+                if (!pointer.Began || IsOverButton(pointer.Position)) continue;
+                _dragPointer = pointer.Id;
+                _lastPointerWorldX = ScreenToWorldX(pointer.Position); // Anchor only; no move this frame.
+                break;
+            }
+            return 0f;
+        }
+
+        /// <summary>All fingers (or the mouse) currently pressed.</summary>
+        private void CollectPointers()
+        {
+            _pointers.Clear();
 #if ENABLE_INPUT_SYSTEM
-            // Pointer covers both mouse (editor) and the primary touch (device).
-            Pointer pointer = Pointer.current;
-            if (pointer == null) return 0f;
-            pressed = pointer.press.isPressed;
-            screenPosition = pointer.position.ReadValue();
+            Touchscreen touchscreen = Touchscreen.current;
+            if (touchscreen != null)
+            {
+                foreach (var touch in touchscreen.touches)
+                {
+                    if (!touch.press.isPressed) continue;
+                    _pointers.Add(new PointerSample
+                    {
+                        Id = touch.touchId.ReadValue(),
+                        Position = touch.position.ReadValue(),
+                        Began = touch.press.wasPressedThisFrame,
+                    });
+                }
+                if (_pointers.Count > 0) return;
+            }
+
+            Mouse mouse = Mouse.current;
+            if (mouse != null && mouse.leftButton.isPressed)
+            {
+                _pointers.Add(new PointerSample
+                {
+                    Id = MousePointer,
+                    Position = mouse.position.ReadValue(),
+                    Began = mouse.leftButton.wasPressedThisFrame,
+                });
+            }
 #else
-            // Touches are mirrored to mouse button 0 by default (Input.simulateMouseWithTouches).
-            pressed = Input.GetMouseButton(0);
-            screenPosition = Input.mousePosition;
+            if (Input.touchCount > 0)
+            {
+                // Real touches. (Touch 0 is also mirrored to the mouse; ignore that copy.)
+                for (int i = 0; i < Input.touchCount; i++)
+                {
+                    Touch touch = Input.GetTouch(i);
+                    if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled) continue;
+                    _pointers.Add(new PointerSample
+                    {
+                        Id = touch.fingerId,
+                        Position = touch.position,
+                        Began = touch.phase == TouchPhase.Began,
+                    });
+                }
+                return;
+            }
+
+            if (Input.GetMouseButton(0))
+            {
+                _pointers.Add(new PointerSample
+                {
+                    Id = MousePointer,
+                    Position = Input.mousePosition,
+                    Began = Input.GetMouseButtonDown(0),
+                });
+            }
 #endif
-            if (!pressed)
-            {
-                _dragging = false;
-                return 0f;
-            }
+        }
 
-            float pointerX = ScreenToWorldX(screenPosition);
-            if (!_dragging)
-            {
-                // First frame of the drag: just anchor, don't move.
-                _dragging = true;
-                _lastPointerWorldX = pointerX;
-                return 0f;
-            }
+        /// <summary>True if the screen point is over a UI element that handles presses (buttons, FIRE).</summary>
+        private bool IsOverButton(Vector2 screenPosition)
+        {
+            EventSystem eventSystem = EventSystem.current;
+            if (!eventSystem) return false;
 
-            float delta = pointerX - _lastPointerWorldX;
-            _lastPointerWorldX = pointerX;
-            return delta;
+            // Only runs on the frame a finger goes down, so a fresh event object is fine.
+            var uiPointer = new PointerEventData(eventSystem) { position = screenPosition };
+
+            _uiHits.Clear();
+            eventSystem.RaycastAll(uiPointer, _uiHits);
+            foreach (RaycastResult hit in _uiHits)
+            {
+                if (ExecuteEvents.GetEventHandler<IPointerDownHandler>(hit.gameObject) != null ||
+                    ExecuteEvents.GetEventHandler<IPointerClickHandler>(hit.gameObject) != null)
+                    return true;
+            }
+            return false;
         }
 
         private float ScreenToWorldX(Vector2 screenPosition)

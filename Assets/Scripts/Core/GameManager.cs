@@ -15,7 +15,8 @@ namespace SectorCleanse.Core
     /// the app is paused/closed. The menu then offers CONTINUE (restores time, wave,
     /// round money and the surviving squad) or ABANDON (banks the round money).
     ///
-    /// Waves: every <see cref="waveDuration"/> seconds. Kills pay $1 per wave number.
+    /// Waves: the WaveDirector runs each wave (normal enemies, then an elite) and calls
+    /// <see cref="AdvanceWave"/> when the elite is killed. Kills pay $1 per wave number.
     /// Every <see cref="checkpointEvery"/>th wave reached is a checkpoint: new runs
     /// start from the highest checkpoint ever reached. Best wave / best run money
     /// are kept as highscores.
@@ -61,9 +62,6 @@ namespace SectorCleanse.Core
         [Tooltip("Start a round immediately on Play (skips the menu). Handy while grayboxing.")]
         [SerializeField] private bool autoStartRound;
 
-        [Tooltip("Seconds per wave. Difficulty ramps with round time, so waves track difficulty.")]
-        [SerializeField, Min(1f)] private float waveDuration = 30f;
-
         [Tooltip("Every Nth wave reached becomes a checkpoint that new runs start from.")]
         [SerializeField, Min(1)] private int checkpointEvery = 5;
 
@@ -92,11 +90,14 @@ namespace SectorCleanse.Core
         /// <summary>Result of the most recently finished round (read by the game-over screen).</summary>
         public RoundResult LastRoundResult { get; private set; }
 
-        /// <summary>Current wave (1-based), derived from round time.</summary>
-        public int Wave => WaveAt(RoundTime);
+        /// <summary>Current wave (1-based). Only advances when the wave's elite is killed.</summary>
+        public int Wave { get; private set; } = 1;
 
-        /// <summary>Money paid per enemy killed on the current wave.</summary>
+        /// <summary>Money paid per enemy killed on the current wave (before multipliers).</summary>
         public int KillReward => rewardPerWave * Wave;
+
+        /// <summary>Temporary money modifier (e.g. the Bounty buff). Reset to 1 each round.</summary>
+        public float MoneyMultiplier { get; set; } = 1f;
 
         /// <summary>Highest checkpoint wave reached (0 = none yet). New runs start here.</summary>
         public int CheckpointWave { get; private set; }
@@ -115,8 +116,11 @@ namespace SectorCleanse.Core
         /// <summary>True if the last finished round beat the best wave or best run money.</summary>
         public bool LastRoundWasHighscore { get; private set; }
 
-        /// <summary>Wave number for a given round time (also used to describe saved runs).</summary>
-        public int WaveAt(float roundTime) => 1 + Mathf.FloorToInt(roundTime / waveDuration);
+        /// <summary>Wave of a saved run (saves from before elites stored only the round time).</summary>
+        public static int WaveOf(RunSaveData data) =>
+            data == null ? 1 : data.wave > 0 ? data.wave : 1 + Mathf.FloorToInt(data.roundTime / LegacyWaveDuration);
+
+        private const float LegacyWaveDuration = 30f;
 
         /// <summary>True when a suspended/interrupted run is waiting to be continued.</summary>
         public bool HasSavedRun => RunSave.Exists;
@@ -171,9 +175,7 @@ namespace SectorCleanse.Core
         {
             if (!IsPlaying) return;
 
-            int waveBefore = Wave;
             RoundTime += Time.deltaTime;
-            if (Wave != waveBefore) OnWaveReached(Wave);
 
             _autosaveTimer -= Time.unscaledDeltaTime;
             if (_autosaveTimer <= 0f) SaveRun();
@@ -227,7 +229,7 @@ namespace SectorCleanse.Core
             RunSaveData data = RunSave.Read();
             if (data != null)
             {
-                RecordHighscore(WaveAt(data.roundTime), data.roundMoney);
+                RecordHighscore(WaveOf(data), data.roundMoney);
                 AddBankedMoney(data.roundMoney);
             }
             DeleteSavedRun();
@@ -249,9 +251,11 @@ namespace SectorCleanse.Core
                 _returnToMenuRoutine = null;
             }
 
-            // New runs start at the start of the highest checkpoint wave.
-            RoundTime = resume?.roundTime ?? (StartWave - 1) * waveDuration;
+            // New runs start at the highest checkpoint wave.
+            Wave = resume != null ? WaveOf(resume) : StartWave;
+            RoundTime = resume?.roundTime ?? 0f;
             RoundMoney = resume?.roundMoney ?? 0;
+            MoneyMultiplier = 1f;
             RoundMoneyChanged?.Invoke(RoundMoney);
             _autosaveTimer = autosaveInterval;
 
@@ -271,12 +275,21 @@ namespace SectorCleanse.Core
             _autosaveTimer = autosaveInterval;
             if (!IsPlaying) return;
 
-            var data = new RunSaveData { roundTime = RoundTime, roundMoney = RoundMoney };
+            var data = new RunSaveData { wave = Wave, roundTime = RoundTime, roundMoney = RoundMoney };
             foreach (IRunStatePersistent participant in RunSave.Registered) participant.SaveRunState(data);
 
             bool hadSave = RunSave.Exists;
             RunSave.Write(data);
             if (!hadSave) SavedRunChanged?.Invoke();
+        }
+
+        /// <summary>The current wave's elite was beaten: move on to the next wave.</summary>
+        public void AdvanceWave()
+        {
+            if (!IsPlaying) return;
+            Wave++;
+            OnWaveReached(Wave);
+            SaveRun();
         }
 
         /// <summary>Checkpoints every Nth wave (kept if the run later fails).</summary>
@@ -358,6 +371,20 @@ namespace SectorCleanse.Core
         {
             if (!IsPlaying || amount <= 0) return;
             RoundMoney += amount;
+            RoundMoneyChanged?.Invoke(RoundMoney);
+        }
+
+        /// <summary>Pay for kill(s) on the current wave: KillReward × multiplier × <see cref="MoneyMultiplier"/>.</summary>
+        public void AddKillReward(float multiplier)
+        {
+            AddRoundMoney(Mathf.CeilToInt(KillReward * multiplier * MoneyMultiplier));
+        }
+
+        /// <summary>Take money away from this round (e.g. the Sabotage debuff).</summary>
+        public void RemoveRoundMoney(int amount)
+        {
+            if (!IsPlaying || amount <= 0) return;
+            RoundMoney = Mathf.Max(0, RoundMoney - amount);
             RoundMoneyChanged?.Invoke(RoundMoney);
         }
 

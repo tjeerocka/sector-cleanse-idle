@@ -21,12 +21,14 @@ namespace SectorCleanse.EditorTools
     ///  * an orthographic 2D camera;
     ///  * GameManager with all scene roots wired up;
     ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips), Player (movement,
-    ///    squad + soldier formation, weapon), EnemySpawner and HUD;
+    ///    squad + soldier formation, weapon + manual fire), EnemySpawner, WaveDirector
+    ///    (elites + buffs/debuffs) and HUD;
     ///  * MenuRoot canvas: bank total, front-line stats, DEPLOY / CONTINUE / ABANDON,
     ///    the Barracks screen, the upgrade shop, the Highscores screen and the
     ///    first-launch name screen (Barracks, UpgradeShop and PlayerProfile live on the
     ///    GameManager object);
-    ///  * HUD with a pause button (suspends and saves the run);
+    ///  * HUD with a pause button (suspends and saves the run), the hold-to-fire button
+    ///    with its heat bar, the elite timer, a banner and the active effects list;
     ///  * GameOverRoot overlay with the round summary;
     ///  * an EventSystem matching the project's active input handling.
     ///
@@ -85,6 +87,7 @@ namespace SectorCleanse.EditorTools
             PlayerController controller = playerGo.AddComponent<PlayerController>();
             PlayerSquad squad = playerGo.AddComponent<PlayerSquad>();
             SquadFormation formation = playerGo.AddComponent<SquadFormation>();
+            ManualFire manualFire = playerGo.AddComponent<ManualFire>();
             Weapon weapon = playerGo.AddComponent<Weapon>();
 
             SetRef(controller, "laneSystem", lanes);
@@ -102,7 +105,22 @@ namespace SectorCleanse.EditorTools
             SetRef(spawner, "squad", squad);
             SetRef(spawner, "enemySprite", square);
 
-            CreateHud(gameplayRoot.transform, gameManager, squad, weapon);
+            var directorGo = new GameObject("WaveDirector");
+            directorGo.transform.SetParent(gameplayRoot.transform, false);
+            RunEffects effects = directorGo.AddComponent<RunEffects>();
+            WaveDirector director = directorGo.AddComponent<WaveDirector>();
+            SetRef(effects, "weapon", weapon);
+            SetRef(effects, "squad", squad);
+            SetRef(effects, "spawner", spawner);
+            SetRef(director, "laneSystem", lanes);
+            SetRef(director, "player", controller);
+            SetRef(director, "squad", squad);
+            SetRef(director, "weapon", weapon);
+            SetRef(director, "spawner", spawner);
+            SetRef(director, "effects", effects);
+            SetRef(director, "sprite", square);
+
+            CreateHud(gameplayRoot.transform, gameManager, squad, weapon, manualFire, director, effects);
 
             // Meta-progression lives on the GameManager object (persists across rounds).
             UpgradeShop shop = gameManager.gameObject.AddComponent<UpgradeShop>();
@@ -443,7 +461,7 @@ namespace SectorCleanse.EditorTools
         /// Lives under GameplayRoot so it hides with the round.
         /// </summary>
         private static void CreateHud(Transform gameplayRoot, GameManager gameManager, PlayerSquad squad,
-            Weapon weapon)
+            Weapon weapon, ManualFire manualFire, WaveDirector director, RunEffects effects)
         {
             Canvas canvas = CreateCanvas("HUD", 5);
             canvas.transform.SetParent(gameplayRoot, false);
@@ -465,6 +483,111 @@ namespace SectorCleanse.EditorTools
             SetRef(hud, "rightLabel", right);
             SetRef(hud, "squad", squad);
             SetRef(hud, "weapon", weapon);
+            SetRef(hud, "director", director);
+
+            CreateFireButton(canvas.transform, manualFire);
+
+            // --- Elite timer bar (top centre, under the pause button) ---
+            RectTransform eliteBar = CreateBar(canvas.transform, "EliteBar", new Vector2(0.5f, 1f),
+                new Vector2(0f, -165f), new Vector2(680f, 60f), new Color(0.75f, 0.3f, 1f), out _, out Text eliteLabel);
+            eliteLabel.fontSize = 36;
+            eliteBar.gameObject.SetActive(false);
+
+            // --- Banner (centre) ---
+            Text banner = CreateText(canvas.transform, "Banner", "", 64,
+                new Vector2(0f, 260f), new Vector2(1040f, 260f));
+            banner.raycastTarget = false;
+
+            // --- Active effects (left column, under the stats) ---
+            Text effectsLabel = CreateText(canvas.transform, "Effects", "", 40, Vector2.zero, Vector2.zero);
+            effectsLabel.alignment = TextAnchor.UpperLeft;
+            effectsLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            effectsLabel.supportRichText = true;
+            effectsLabel.raycastTarget = false;
+            var effectsRt = (RectTransform)effectsLabel.transform;
+            effectsRt.anchorMin = effectsRt.anchorMax = new Vector2(0f, 1f);
+            effectsRt.pivot = new Vector2(0f, 1f);
+            effectsRt.anchoredPosition = new Vector2(40f, -480f);
+            effectsRt.sizeDelta = new Vector2(560f, 320f);
+
+            CombatHudView combat = canvas.gameObject.AddComponent<CombatHudView>();
+            SetRef(combat, "director", director);
+            SetRef(combat, "effects", effects);
+            SetRef(combat, "squad", squad);
+            SetRef(combat, "bannerLabel", banner);
+            SetRef(combat, "eliteBar", eliteBar.gameObject);
+            SetRef(combat, "eliteBarFill", eliteBar.Find("Fill"));
+            SetRef(combat, "eliteBarLabel", eliteLabel);
+            SetRef(combat, "effectsLabel", effectsLabel);
+        }
+
+        /// <summary>Hold-to-fire button (bottom right) with its heat bar above it.</summary>
+        private static void CreateFireButton(Transform parent, ManualFire manualFire)
+        {
+            var go = new GameObject("FireButton", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 0f);
+            rt.pivot = new Vector2(1f, 0f);
+            rt.anchoredPosition = new Vector2(-30f, 50f);
+            rt.sizeDelta = new Vector2(280f, 280f);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Knob.psd"); // Round.
+            image.color = new Color(0.85f, 0.3f, 0.25f, 0.85f);
+
+            Text label = CreateText(go.transform, "Label", "HOLD\nFIRE", 52, Vector2.zero, Vector2.zero);
+            Stretch((RectTransform)label.transform);
+            label.raycastTarget = false;
+
+            RectTransform heatBar = CreateBar(parent, "HeatBar", new Vector2(1f, 0f),
+                new Vector2(-30f, 345f), new Vector2(280f, 40f), new Color(1f, 0.6f, 0.2f),
+                out Image heatFill, out Text heatLabel);
+            heatBar.pivot = new Vector2(1f, 0f);
+            heatBar.anchoredPosition = new Vector2(-30f, 345f);
+            heatLabel.text = "HEAT";
+            heatLabel.fontSize = 26;
+
+            FireButtonView view = go.AddComponent<FireButtonView>();
+            SetRef(view, "manualFire", manualFire);
+            SetRef(view, "background", image);
+            SetRef(view, "label", label);
+            SetRef(view, "heatFill", heatFill.rectTransform);
+            SetRef(view, "heatFillImage", heatFill);
+        }
+
+        /// <summary>
+        /// A horizontal bar: dark background, a "Fill" child scaled on X from the left
+        /// (0..1), and a centred label. Not clickable.
+        /// </summary>
+        private static RectTransform CreateBar(Transform parent, string name, Vector2 anchor,
+            Vector2 anchoredPosition, Vector2 size, Color fillColor, out Image fill, out Text label)
+        {
+            var bar = new GameObject(name, typeof(RectTransform), typeof(Image));
+            bar.transform.SetParent(parent, false);
+            var rt = (RectTransform)bar.transform;
+            rt.anchorMin = rt.anchorMax = anchor;
+            rt.pivot = new Vector2(0.5f, 1f);
+            rt.anchoredPosition = anchoredPosition;
+            rt.sizeDelta = size;
+            var background = bar.GetComponent<Image>();
+            background.color = new Color(0f, 0f, 0f, 0.6f);
+            background.raycastTarget = false;
+
+            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillGo.transform.SetParent(bar.transform, false);
+            var fillRt = (RectTransform)fillGo.transform;
+            Stretch(fillRt);
+            fillRt.pivot = new Vector2(0f, 0.5f);
+            fillRt.localScale = new Vector3(0f, 1f, 1f);
+            fill = fillGo.GetComponent<Image>();
+            fill.color = fillColor;
+            fill.raycastTarget = false;
+
+            label = CreateText(bar.transform, "Label", "", 32, Vector2.zero, Vector2.zero);
+            Stretch((RectTransform)label.transform);
+            label.raycastTarget = false;
+            return rt;
         }
 
         private static Text CreateCornerText(Transform parent, string name, bool rightSide)

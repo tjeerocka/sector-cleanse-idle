@@ -7,7 +7,10 @@ namespace SectorCleanse.Combat
 {
     /// <summary>
     /// Spawns enemies at the top of random lanes while a round is running.
-    /// Difficulty ramps over the round: enemies spawn more often and get more HP.
+    /// Difficulty ramps with the wave number: enemies spawn more often and get more HP.
+    /// (A wave only advances when its elite is killed, so a failed elite means the
+    /// same difficulty again.) The WaveDirector slows spawning while an elite is up,
+    /// and the Swarm debuff speeds it up.
     /// A lane only gets a new enemy once the previous one has moved clear of the
     /// spawn point, so dense spawning never stacks enemies on top of each other.
     ///
@@ -25,11 +28,11 @@ namespace SectorCleanse.Combat
         [Tooltip("Seconds between spawns at the start of a round.")]
         [SerializeField, Min(0.05f)] private float startInterval = 0.4f;
 
-        [Tooltip("Fastest spawn interval, reached after Ramp Duration seconds.")]
+        [Tooltip("Fastest spawn interval, reached at wave 1 + Ramp Waves.")]
         [SerializeField, Min(0.05f)] private float minInterval = 0.15f;
 
-        [Tooltip("Seconds until the spawn interval reaches its minimum.")]
-        [SerializeField, Min(1f)] private float rampDuration = 300f;
+        [Tooltip("Waves until the spawn interval reaches its minimum.")]
+        [SerializeField, Min(1f)] private float rampWaves = 10f;
 
         [Tooltip("Delay before the first enemy of a round.")]
         [SerializeField, Min(0f)] private float firstSpawnDelay = 1f;
@@ -38,8 +41,8 @@ namespace SectorCleanse.Combat
         [SerializeField, Min(0.1f)] private float enemySpeed = 1.5f;
         [SerializeField, Min(1)] private int baseHp = 3;
 
-        [Tooltip("Extra HP added per second of round time (0.1 = +1 HP every 10 s).")]
-        [SerializeField, Min(0f)] private float hpPerSecond = 0.1f;
+        [Tooltip("Extra HP added per wave after the first.")]
+        [SerializeField, Min(0f)] private float hpPerWave = 3f;
 
         [Tooltip("Random extra HP, 0..this value, added to each enemy.")]
         [SerializeField, Min(0)] private int hpVariance = 2;
@@ -58,7 +61,16 @@ namespace SectorCleanse.Combat
 
         private LaneSystem Lanes => laneSystem ? laneSystem : LaneSystem.Instance;
 
-        private float RoundTime => GameManager.Instance ? GameManager.Instance.RoundTime : Time.timeSinceLevelLoad;
+        private int Wave => GameManager.Instance ? GameManager.Instance.Wave : 1;
+
+        /// <summary>Spawn-rate factor set by the WaveDirector (slower while an elite is up).</summary>
+        public float PhaseRateMultiplier { get; set; } = 1f;
+
+        /// <summary>Spawn-rate factor set by RunEffects (Swarm debuff).</summary>
+        public float EffectRateMultiplier { get; set; } = 1f;
+
+        /// <summary>Average HP of a normal enemy on a wave (elites size their minimum HP from this).</summary>
+        public float AverageHpForWave(int wave) => BaseHpForWave(wave) + hpVariance * 0.5f;
 
         // ------------------------------------------------------------------
         // Unity lifecycle
@@ -104,11 +116,16 @@ namespace SectorCleanse.Combat
         // Difficulty curve
         // ------------------------------------------------------------------
 
-        private float CurrentInterval() =>
-            Mathf.Lerp(startInterval, minInterval, RoundTime / rampDuration);
+        private float CurrentInterval()
+        {
+            float interval = Mathf.Lerp(startInterval, minInterval, (Wave - 1) / rampWaves);
+            float rate = Mathf.Max(0.05f, PhaseRateMultiplier * EffectRateMultiplier);
+            return interval / rate;
+        }
 
-        private int CurrentHp() =>
-            baseHp + Mathf.FloorToInt(RoundTime * hpPerSecond) + Random.Range(0, hpVariance + 1);
+        private int BaseHpForWave(int wave) => baseHp + Mathf.FloorToInt((wave - 1) * hpPerWave);
+
+        private int CurrentHp() => BaseHpForWave(Wave) + Random.Range(0, hpVariance + 1);
 
         // ------------------------------------------------------------------
         // Internals
@@ -130,6 +147,8 @@ namespace SectorCleanse.Combat
         {
             _timer = firstSpawnDelay;
             _laneFreeAt.Clear();
+            PhaseRateMultiplier = 1f;
+            EffectRateMultiplier = 1f;
             for (int i = _container.childCount - 1; i >= 0; i--)
             {
                 var enemy = _container.GetChild(i).GetComponent<Enemy>();
