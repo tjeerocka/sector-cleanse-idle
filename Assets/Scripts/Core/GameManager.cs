@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace SectorCleanse.Core
@@ -7,7 +8,12 @@ namespace SectorCleanse.Core
     /// <summary>
     /// Owns the top-level game loop:
     ///
-    ///   MainMenu --StartRound()--> Playing --EndRound()--> GameOver --(delay)--> MainMenu
+    ///   MainMenu --StartRound()/ContinueRun()--> Playing --EndRound()--> GameOver --(delay)--> MainMenu
+    ///                                             Playing --SuspendRun()--> MainMenu (run saved)
+    ///
+    /// Saved runs: while playing, the run is autosaved every few seconds and whenever
+    /// the app is paused/closed. The menu then offers CONTINUE (restores time, wave,
+    /// round money and the surviving squad) or ABANDON (banks the round money).
     ///
     /// Responsibilities are deliberately narrow:
     ///  * track and broadcast the current <see cref="GameState"/>;
@@ -47,6 +53,12 @@ namespace SectorCleanse.Core
         [Tooltip("Start a round immediately on Play (skips the menu). Handy while grayboxing.")]
         [SerializeField] private bool autoStartRound;
 
+        [Tooltip("Seconds per wave. Waves are a display of difficulty progress (difficulty ramps with round time).")]
+        [SerializeField, Min(1f)] private float waveDuration = 20f;
+
+        [Tooltip("Seconds between autosaves while a round is running.")]
+        [SerializeField, Min(1f)] private float autosaveInterval = 3f;
+
         // ------------------------------------------------------------------
         // State
         // ------------------------------------------------------------------
@@ -66,6 +78,15 @@ namespace SectorCleanse.Core
         /// <summary>Result of the most recently finished round (read by the game-over screen).</summary>
         public RoundResult LastRoundResult { get; private set; }
 
+        /// <summary>Current wave (1-based), derived from round time.</summary>
+        public int Wave => WaveAt(RoundTime);
+
+        /// <summary>Wave number for a given round time (also used to describe saved runs).</summary>
+        public int WaveAt(float roundTime) => 1 + Mathf.FloorToInt(roundTime / waveDuration);
+
+        /// <summary>True when a suspended/interrupted run is waiting to be continued.</summary>
+        public bool HasSavedRun => RunSave.Exists;
+
         // ------------------------------------------------------------------
         // Events
         // ------------------------------------------------------------------
@@ -76,7 +97,11 @@ namespace SectorCleanse.Core
         public event Action<int> RoundMoneyChanged;
         public event Action<int> BankedMoneyChanged;
 
+        /// <summary>Raised when a saved run appears or disappears (menu swaps DEPLOY / CONTINUE).</summary>
+        public event Action SavedRunChanged;
+
         private Coroutine _returnToMenuRoutine;
+        private float _autosaveTimer;
 
         // ------------------------------------------------------------------
         // Unity lifecycle
@@ -104,7 +129,24 @@ namespace SectorCleanse.Core
 
         private void Update()
         {
-            if (IsPlaying) RoundTime += Time.deltaTime;
+            if (!IsPlaying) return;
+
+            RoundTime += Time.deltaTime;
+
+            _autosaveTimer -= Time.unscaledDeltaTime;
+            if (_autosaveTimer <= 0f) SaveRun();
+        }
+
+        // Mobile: the app goes to the background (home button, call, lock screen).
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused && IsPlaying) SaveRun();
+        }
+
+        // Desktop / editor: window closed or Play mode stopped.
+        private void OnApplicationQuit()
+        {
+            if (IsPlaying) SaveRun();
         }
 
         private void OnDestroy()
@@ -120,20 +162,81 @@ namespace SectorCleanse.Core
         public void StartRound()
         {
             if (IsPlaying) return;
+            if (HasSavedRun) AbandonRun(); // A new run replaces any suspended one (its money is banked).
+            BeginRound(null);
+        }
 
+        /// <summary>Resume the saved run (menu "Continue" button).</summary>
+        public void ContinueRun()
+        {
+            if (IsPlaying) return;
+            RunSaveData data = RunSave.Read();
+            if (data == null)
+            {
+                SavedRunChanged?.Invoke();
+                return;
+            }
+            BeginRound(data);
+        }
+
+        /// <summary>Give up the saved run: its round money is banked, the run is discarded.</summary>
+        public void AbandonRun()
+        {
+            RunSaveData data = RunSave.Read();
+            if (data != null) AddBankedMoney(data.roundMoney);
+            DeleteSavedRun();
+        }
+
+        /// <summary>Pause button: save the run and go to the menu without ending it.</summary>
+        public void SuspendRun()
+        {
+            if (!IsPlaying) return;
+            SaveRun();
+            SetState(GameState.MainMenu);
+        }
+
+        private void BeginRound(RunSaveData resume)
+        {
             if (_returnToMenuRoutine != null)
             {
                 StopCoroutine(_returnToMenuRoutine);
                 _returnToMenuRoutine = null;
             }
 
-            RoundTime = 0f;
-            RoundMoney = 0;
+            RoundTime = resume?.roundTime ?? 0f;
+            RoundMoney = resume?.roundMoney ?? 0;
             RoundMoneyChanged?.Invoke(RoundMoney);
+            _autosaveTimer = autosaveInterval;
 
             // Activate gameplay objects first so their listeners are live, then announce the round.
             SetState(GameState.Playing);
             RoundStarted?.Invoke();
+
+            // Continuing: components reset normally above, then restore their saved state.
+            if (resume == null) return;
+            var participants = new List<IRunStatePersistent>(RunSave.Registered);
+            foreach (IRunStatePersistent participant in participants) participant.LoadRunState(resume);
+        }
+
+        /// <summary>Snapshot the running round to storage.</summary>
+        private void SaveRun()
+        {
+            _autosaveTimer = autosaveInterval;
+            if (!IsPlaying) return;
+
+            var data = new RunSaveData { roundTime = RoundTime, roundMoney = RoundMoney };
+            foreach (IRunStatePersistent participant in RunSave.Registered) participant.SaveRunState(data);
+
+            bool hadSave = RunSave.Exists;
+            RunSave.Write(data);
+            if (!hadSave) SavedRunChanged?.Invoke();
+        }
+
+        private void DeleteSavedRun()
+        {
+            if (!RunSave.Exists) return;
+            RunSave.Delete();
+            SavedRunChanged?.Invoke();
         }
 
         /// <summary>
@@ -144,9 +247,10 @@ namespace SectorCleanse.Core
         {
             if (!IsPlaying) return;
 
-            var result = new RoundResult(RoundTime, RoundMoney);
+            var result = new RoundResult(RoundTime, RoundMoney, Wave);
             LastRoundResult = result;
             AddBankedMoney(RoundMoney);
+            DeleteSavedRun(); // The run is over; nothing to continue.
 
             SetState(GameState.GameOver);
             RoundEnded?.Invoke(result);

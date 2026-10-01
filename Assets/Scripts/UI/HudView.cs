@@ -8,9 +8,8 @@ namespace SectorCleanse.UI
 {
     /// <summary>
     /// In-round HUD, split into two side columns so it never covers the lanes:
-    ///  * Left:  bank (unchanged until the round ends), money earned this round, time.
-    ///  * Right: soldiers (incl. the player) and live weapon stats, so buffs and
-    ///    debuffs are visible the moment they apply.
+    ///  * Left:  bank (unchanged until the round ends), money earned this round, wave, time.
+    ///  * Right: fighters (incl. the player), squad HP and live weapon stats.
     /// Only rewrites text when a value actually changes.
     /// </summary>
     public class HudView : MonoBehaviour
@@ -24,8 +23,8 @@ namespace SectorCleanse.UI
         [Tooltip("Optional. Found automatically if left empty.")]
         [SerializeField] private Weapon weapon;
 
-        private (int bank, int round, int seconds) _shownLeft;
-        private (int soldiers, int damage, float rate, float speed) _shownRight;
+        private (int bank, int round, int wave, int seconds) _shownLeft;
+        private (int fighters, double hp, double volley, float rate, float speed) _shownRight;
         private bool _hasShown;
 
         private void Awake()
@@ -41,23 +40,28 @@ namespace SectorCleanse.UI
             var left = (
                 bank: gm ? gm.BankedMoney : 0,
                 round: gm ? gm.RoundMoney : 0,
+                wave: gm ? gm.Wave : 1,
                 seconds: gm ? Mathf.FloorToInt(gm.RoundTime) : 0);
 
             var right = (
-                soldiers: squad ? squad.SoldierCount : 0,
-                damage: weapon ? weapon.Damage : 0,
+                fighters: squad ? squad.SoldierCount : 0,
+                hp: squad ? System.Math.Ceiling(squad.TotalHp) : 0d,
+                volley: weapon ? weapon.VolleyDamage : 0d,
                 rate: weapon ? weapon.FireRate : 0f,
                 speed: weapon ? weapon.BulletSpeed : 0f);
 
             if (leftLabel && (!_hasShown || left != _shownLeft))
             {
-                leftLabel.text = $"BANK ${left.bank}\nROUND +${left.round}\nTIME {left.seconds}s";
+                leftLabel.text =
+                    $"BANK ${left.bank}\nROUND +${left.round}\nWAVE {left.wave}\nTIME {left.seconds}s";
             }
 
             if (rightLabel && (!_hasShown || right != _shownRight))
             {
                 rightLabel.text =
-                    $"SOLDIERS {right.soldiers}\nDAMAGE {right.damage}\n" +
+                    $"SQUAD {right.fighters}/{Barracks.FrontLineCap + 1}\n" +
+                    $"SQUAD HP {NumberFormat.Short(right.hp)}\n" +
+                    $"VOLLEY DMG {NumberFormat.Short(right.volley)}\n" +
                     $"FIRE RATE {right.rate:0.#}/s\nBULLET SPEED {right.speed:0.#}";
             }
 

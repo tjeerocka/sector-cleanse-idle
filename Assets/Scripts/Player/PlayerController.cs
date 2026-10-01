@@ -22,7 +22,7 @@ namespace SectorCleanse.Player
     ///    relative to the drag, so the finger never has to cover the player.
     /// </summary>
     [DisallowMultipleComponent]
-    public class PlayerController : MonoBehaviour
+    public class PlayerController : MonoBehaviour, IRunStatePersistent
     {
         [Header("References")]
         [Tooltip("Optional. Falls back to LaneSystem.Instance.")]
@@ -62,11 +62,13 @@ namespace SectorCleanse.Player
             // root right before raising RoundStarted, and OnEnable runs synchronously
             // during that activation whereas Start would be deferred to the next frame.
             if (GameManager.Instance) GameManager.Instance.RoundStarted += HandleRoundStarted;
+            RunSave.Register(this);
         }
 
         private void OnDisable()
         {
             if (GameManager.Instance) GameManager.Instance.RoundStarted -= HandleRoundStarted;
+            RunSave.Unregister(this);
             _dragging = false;
         }
 
@@ -104,6 +106,15 @@ namespace SectorCleanse.Player
             if (!Lanes) return;
             _dragging = false;
             SetX(Lanes.GetLaneX(lane));
+        }
+
+        public void SaveRunState(RunSaveData data) => data.playerX = transform.position.x;
+
+        public void LoadRunState(RunSaveData data)
+        {
+            if (!Lanes) return;
+            _dragging = false;
+            SetX(data.playerX);
         }
 
         // ------------------------------------------------------------------

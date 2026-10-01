@@ -5,9 +5,9 @@ using UnityEngine.UI;
 namespace SectorCleanse.UI
 {
     /// <summary>
-    /// Game-over overlay summary: money earned this round, survival time and the
-    /// new bank total. GameManager stores the result before activating this
-    /// overlay, so reading it in OnEnable is always up to date.
+    /// Game-over overlay summary: money earned this round, wave reached, survival
+    /// time and the new bank total. GameManager stores the result before activating
+    /// this overlay, so reading it in OnEnable is always up to date.
     /// </summary>
     public class GameOverView : MonoBehaviour
     {
@@ -21,7 +21,7 @@ namespace SectorCleanse.UI
             RoundResult result = gm.LastRoundResult;
             summaryLabel.text =
                 $"+${result.MoneyEarned} EARNED\n" +
-                $"SURVIVED {Mathf.FloorToInt(result.SurvivalTime)}s\n" +
+                $"REACHED WAVE {result.Wave} ({Mathf.FloorToInt(result.SurvivalTime)}s)\n" +
                 $"BANK ${gm.BankedMoney}";
         }
     }

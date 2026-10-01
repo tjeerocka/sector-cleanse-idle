@@ -1,113 +1,189 @@
 using System;
+using System.Collections.Generic;
 using SectorCleanse.Core;
 using UnityEngine;
 
 namespace SectorCleanse.Player
 {
     /// <summary>
-    /// The squad's soldier count, which doubles as its health pool.
+    /// The squad fighting this run: the player (commander) plus up to
+    /// <see cref="Barracks.FrontLineCap"/> deployed soldiers.
     ///
-    /// The player character counts as one soldier, so a squad of 1 is just the
-    /// player. Enemies reaching the player line deal damage equal to their remaining
-    /// HP, which removes that many soldiers. At 0 the round ends.
-    ///
-    /// Later systems plug in here:
-    ///  * Recruit buffs        -> <see cref="AddSoldiers"/>
-    ///  * Compromised Position -> <see cref="RemoveSoldiers"/>
-    ///  * Enemy breach         -> <see cref="TakeDamage"/>
-    ///  * Meta-progression     -> <see cref="SetStartingSoldiers"/> before a round starts
+    /// Health model:
+    ///  * Each soldier has HP = its damage = 5^tier.
+    ///  * Breach damage hits the weakest soldier first and overflows to the next;
+    ///    the player is hit only once every soldier is down.
+    ///  * Soldiers lost during a run are only gone for that run; the barracks keeps them.
+    ///  * The round ends when the player falls.
     /// </summary>
     [DisallowMultipleComponent]
-    public class PlayerSquad : MonoBehaviour
+    public class PlayerSquad : MonoBehaviour, IRunStatePersistent
     {
-        [Tooltip("Base soldiers at round start, including the player. Shop upgrades add to this.")]
-        [SerializeField, Min(1)] private int startingSoldiers = 1;
+        public class Soldier
+        {
+            public int Tier;
+            public double MaxHp;
+            public double Hp;
+        }
 
-        [Tooltip("Hard cap on squad size (keeps the graybox readable; 0 = unlimited).")]
-        [SerializeField, Min(0)] private int maxSoldiers;
+        [Tooltip("Optional. Found automatically if left empty.")]
+        [SerializeField] private Barracks barracks;
 
-        public int SoldierCount { get; private set; }
+        [Tooltip("The player's own HP (protected by the soldiers).")]
+        [SerializeField, Min(1f)] private float playerMaxHp = 1f;
 
-        /// <summary>Soldiers at round start: base + permanently bought soldiers.</summary>
-        public int StartingSoldiers => startingSoldiers + _bonusSoldiers;
+        private readonly List<Soldier> _soldiers = new List<Soldier>();
 
-        private int _bonusSoldiers;
-        public bool IsAlive => SoldierCount > 0;
+        /// <summary>Living soldiers (excludes the player), strongest first.</summary>
+        public IReadOnlyList<Soldier> Soldiers => _soldiers;
 
-        /// <summary>Raised with the new count whenever it changes.</summary>
-        public event Action<int> SoldierCountChanged;
+        public double PlayerHp { get; private set; }
+        public double PlayerMaxHp => playerMaxHp;
+        public bool IsAlive => PlayerHp > 0;
 
-        /// <summary>Raised once when the count hits 0, just before the round ends.</summary>
+        /// <summary>Living fighters including the player.</summary>
+        public int SoldierCount => _soldiers.Count + (IsAlive ? 1 : 0);
+
+        public double TotalHp
+        {
+            get
+            {
+                double total = Math.Max(0, PlayerHp);
+                foreach (Soldier s in _soldiers) total += s.Hp;
+                return total;
+            }
+        }
+
+        /// <summary>Raised whenever soldiers are added, damaged or lost.</summary>
+        public event Action SquadChanged;
+
+        /// <summary>Raised once when the player falls, just before the round ends.</summary>
         public event Action SquadWiped;
 
         // ------------------------------------------------------------------
         // Unity lifecycle
         // ------------------------------------------------------------------
 
+        private void Awake()
+        {
+            if (!barracks) barracks = FindAnyObjectByType<Barracks>();
+        }
+
         private void OnEnable()
         {
             // See PlayerController.OnEnable for why this is OnEnable and not Start.
             if (GameManager.Instance) GameManager.Instance.RoundStarted += ResetSquad;
+            RunSave.Register(this);
         }
 
         private void OnDisable()
         {
             if (GameManager.Instance) GameManager.Instance.RoundStarted -= ResetSquad;
+            RunSave.Unregister(this);
         }
 
         private void Start()
         {
             // Covers isolated testing without a GameManager; harmless otherwise.
-            if (SoldierCount == 0) ResetSquad();
+            if (!IsAlive) ResetSquad();
         }
 
         // ------------------------------------------------------------------
         // Public API
         // ------------------------------------------------------------------
 
-        /// <summary>Set by the upgrade/meta system before a round starts.</summary>
-        public void SetStartingSoldiers(int count) => startingSoldiers = Mathf.Max(1, count);
-
-        /// <summary>Permanently bought soldiers (set by the upgrade shop). Applies from the next round.</summary>
-        public void SetBonusSoldiers(int count) => _bonusSoldiers = Mathf.Max(0, count);
-
-        public void AddSoldiers(int amount)
+        /// <summary>Breach damage: weakest soldier first, overflow continues, player last.</summary>
+        public void TakeDamage(double amount)
         {
             if (amount <= 0 || !IsAlive) return;
 
-            int newCount = SoldierCount + amount;
-            if (maxSoldiers > 0) newCount = Mathf.Min(newCount, maxSoldiers);
-            SetCount(newCount);
-        }
+            while (amount > 0 && _soldiers.Count > 0)
+            {
+                Soldier weakest = _soldiers[_soldiers.Count - 1]; // List is kept strongest-first.
+                double dealt = Math.Min(amount, weakest.Hp);
+                weakest.Hp -= dealt;
+                amount -= dealt;
+                if (weakest.Hp <= 0) _soldiers.RemoveAt(_soldiers.Count - 1);
+                else SortStrongestFirst();
+            }
 
-        public void RemoveSoldiers(int amount)
-        {
-            if (amount <= 0 || !IsAlive) return;
+            if (amount > 0) PlayerHp = Math.Max(0, PlayerHp - amount);
 
-            SetCount(Mathf.Max(0, SoldierCount - amount));
+            SquadChanged?.Invoke();
             if (!IsAlive) HandleWiped();
         }
 
-        /// <summary>Damage from an enemy that reached the player line (amount = its remaining HP).</summary>
-        public void TakeDamage(int amount) => RemoveSoldiers(amount);
+        /// <summary>Add a soldier mid-run (e.g. a recruit buff). Ignored when the front line is full.</summary>
+        public void AddSoldier(int tier)
+        {
+            if (!IsAlive || _soldiers.Count >= Barracks.FrontLineCap) return;
+            double hp = Barracks.PowerOfTier(tier);
+            _soldiers.Add(new Soldier { Tier = tier, MaxHp = hp, Hp = hp });
+            SortStrongestFirst();
+            SquadChanged?.Invoke();
+        }
+
+        /// <summary>Remove soldiers outright, weakest first (e.g. "Compromised Position").</summary>
+        public void RemoveSoldiers(int count)
+        {
+            if (count <= 0 || _soldiers.Count == 0) return;
+            int removed = Mathf.Min(count, _soldiers.Count);
+            _soldiers.RemoveRange(_soldiers.Count - removed, removed);
+            SquadChanged?.Invoke();
+        }
+
+        // ------------------------------------------------------------------
+        // Run state
+        // ------------------------------------------------------------------
+
+        public void SaveRunState(RunSaveData data)
+        {
+            data.playerHp = PlayerHp;
+            data.soldiers.Clear();
+            foreach (Soldier s in _soldiers) data.soldiers.Add(new SavedSoldier(s.Tier, s.Hp));
+        }
+
+        public void LoadRunState(RunSaveData data)
+        {
+            _soldiers.Clear();
+            foreach (SavedSoldier saved in data.soldiers)
+            {
+                if (saved.hp <= 0) continue;
+                _soldiers.Add(new Soldier
+                {
+                    Tier = saved.tier,
+                    MaxHp = Barracks.PowerOfTier(saved.tier),
+                    Hp = saved.hp,
+                });
+            }
+            SortStrongestFirst();
+            PlayerHp = data.playerHp > 0 ? data.playerHp : playerMaxHp;
+            SquadChanged?.Invoke();
+        }
 
         // ------------------------------------------------------------------
         // Internals
         // ------------------------------------------------------------------
 
+        /// <summary>Fresh run: full-health copies of the barracks front line.</summary>
         private void ResetSquad()
         {
-            int count = StartingSoldiers;
-            if (maxSoldiers > 0) count = Mathf.Min(count, maxSoldiers);
-            SetCount(count);
+            _soldiers.Clear();
+            if (barracks)
+            {
+                foreach (int tier in barracks.GetDeployedTiers())
+                {
+                    double hp = Barracks.PowerOfTier(tier);
+                    _soldiers.Add(new Soldier { Tier = tier, MaxHp = hp, Hp = hp });
+                }
+            }
+            SortStrongestFirst();
+            PlayerHp = playerMaxHp;
+            SquadChanged?.Invoke();
         }
 
-        private void SetCount(int value)
-        {
-            if (value == SoldierCount) return;
-            SoldierCount = value;
-            SoldierCountChanged?.Invoke(SoldierCount);
-        }
+        private void SortStrongestFirst() =>
+            _soldiers.Sort((a, b) => b.Hp.CompareTo(a.Hp));
 
         private void HandleWiped()
         {
@@ -116,12 +192,12 @@ namespace SectorCleanse.Player
         }
 
 #if UNITY_EDITOR
-        // Right-click the component header in Play Mode to test the death loop without enemies.
+        // Right-click the component header in Play Mode to test without enemies.
         [ContextMenu("Debug/Take 1 Damage")]
         private void DebugTakeDamage() => TakeDamage(1);
 
-        [ContextMenu("Debug/Add 1 Soldier")]
-        private void DebugAddSoldier() => AddSoldiers(1);
+        [ContextMenu("Debug/Add T0 Soldier")]
+        private void DebugAddSoldier() => AddSoldier(0);
 #endif
     }
 }

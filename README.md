@@ -10,14 +10,18 @@ Minimalist 2D idle/incremental lane shooter (Unity, graybox prototype).
 | `Assets/Scripts/Core/GameState.cs` | `GameState` enum and `RoundResult` struct. |
 | `Assets/Scripts/Core/LaneSystem.cs` | Lane geometry (lane X positions, player line, spawn line). Draws gizmos in the Scene view. |
 | `Assets/Scripts/Player/PlayerController.cs` | Free horizontal movement across the 3 lanes: hold A/D or ←/→, or drag with mouse/finger. Tracks the current lane and raises `LaneChanged`. |
-| `Assets/Scripts/Player/PlayerSquad.cs` | Soldier count = health. Ends the round at 0. |
-| `Assets/Scripts/Player/SquadFormation.cs` | Draws one orange square per soldier below the green player; the Weapon fires one bullet per visible soldier. |
+| `Assets/Scripts/Player/Barracks.cs` | Permanent soldiers by tier (T0–T100, DMG/HP = 5^tier). Max 5 per tier in reserve; 5 reserve soldiers MERGE into 1 of the next tier; up to 10 deployed on the front line. Saved. |
+| `Assets/Scripts/Player/PlayerSquad.cs` | The run's squad: player (commander) + deployed soldiers, each with HP = 5^tier. Breach damage hits the weakest soldier first and overflows; the round ends when the player falls. |
+| `Assets/Scripts/Player/SquadFormation.cs` | Draws each soldier below the green player, labelled and tinted by tier; the Weapon fires one bullet per soldier with that soldier's damage. |
 | `Assets/Scripts/Combat/Weapon.cs` | Auto-fires bullets upward. Base damage / fire rate (meta-upgrades) × per-round multipliers (buffs/debuffs). |
 | `Assets/Scripts/Combat/Bullet.cs` | Flies up, damages the first enemy it overlaps (swept check, no physics). |
 | `Assets/Scripts/Combat/Enemy.cs` | Moves down its lane showing HP. Killed → pays its starting HP as money. Reaches the bottom in the player's lane → squad loses soldiers equal to its remaining HP. |
 | `Assets/Scripts/Combat/EnemySpawner.cs` | Spawns enemies in random lanes; spawn rate and HP ramp up over the round. |
 | `Assets/Scripts/UI/HudView.cs` | In-round HUD in two side columns: bank (unchanged until the round ends), round earnings, time on the left; soldiers, damage, fire rate, bullet speed on the right. |
-| `Assets/Scripts/Meta/UpgradeShop.cs` | Permanent upgrades bought with banked money (saved). Recruit Soldier (+1 starting soldier, $25 +$25/level), Damage (+1 per bullet, $40 +$40/level), Fire Rate (+0.5 shots/s, $30 +$30/level, max 20). |
+| `Assets/Scripts/Meta/UpgradeShop.cs` | Permanent upgrades bought with banked money (saved): Damage (+1 per bullet, $40 +$40/level), Fire Rate (+0.5 shots/s, $30 +$30/level, max 20). |
+| `Assets/Scripts/Core/RunSave.cs` | Saved run (time/wave, round money, surviving squad, player position). Autosaved every 3 s and when the app is paused/closed or the pause button is pressed. |
+| `Assets/Scripts/Core/NumberFormat.cs` | Compact big-number display (12.3K, 4.5M, 1.23e15). |
+| `Assets/Scripts/UI/BarracksView.cs` | Barracks screen: recruit T0, and per tier DEPLOY / RETURN / MERGE. |
 | `Assets/Scripts/UI/UpgradeButtonView.cs` | Reusable shop button: name, owned level, price; greys out when unaffordable. |
 | `Assets/Scripts/UI/MenuView.cs` | Start menu: bank total and the stats you deploy with. |
 | `Assets/Scripts/UI/GameOverView.cs` | Game-over summary: money earned, survival time, new bank total. |
@@ -35,7 +39,10 @@ Then press **Play → DEPLOY** and move by holding A/D or the arrow keys, or by 
 The weapon fires automatically; line up under enemies to shoot them, and dodge (or kill) anything about to
 reach your lane. Tuning values live on the **Player** (Weapon, PlayerSquad) and **EnemySpawner** components.
 Debug helpers (right-click the component header in the Inspector): **GameManager → Debug/Add $100 to bank**,
-**UpgradeShop → Debug/Reset all upgrades**.
+**UpgradeShop → Debug/Reset all upgrades**, **Barracks → Debug/Add 5 T0 to reserve**, **Barracks → Debug/Reset barracks**.
+
+Saved runs: closing the app / stopping Play mode / pressing the in-game **II** button saves the run. The menu
+then shows **CONTINUE** (resume at the same wave with the surviving squad) and **ABANDON RUN** (banks its money).
 
 Test the death loop without enemies via the `PlayerSquad` component's context menu
 (⋮ → *Debug/Take 1 Damage*) in Play Mode.

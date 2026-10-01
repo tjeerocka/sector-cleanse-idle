@@ -10,11 +10,11 @@ namespace SectorCleanse.Combat
     /// </summary>
     public class Bullet : MonoBehaviour
     {
-        private int _damage;
+        private double _damage;
         private float _speed;
         private float _maxY;
 
-        public void Initialize(int damage, float speed, float maxY)
+        public void Initialize(double damage, float speed, float maxY)
         {
             _damage = damage;
             _speed = speed;

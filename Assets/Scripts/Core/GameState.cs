@@ -24,11 +24,13 @@ namespace SectorCleanse.Core
     {
         public readonly float SurvivalTime;
         public readonly int MoneyEarned;
+        public readonly int Wave;
 
-        public RoundResult(float survivalTime, int moneyEarned)
+        public RoundResult(float survivalTime, int moneyEarned, int wave)
         {
             SurvivalTime = survivalTime;
             MoneyEarned = moneyEarned;
+            Wave = wave;
         }
     }
 }

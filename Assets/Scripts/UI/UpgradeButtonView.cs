@@ -14,7 +14,7 @@ namespace SectorCleanse.UI
     public class UpgradeButtonView : MonoBehaviour
     {
         [SerializeField] private UpgradeShop shop;
-        [SerializeField] private string upgradeId = UpgradeShop.RecruitSoldierId;
+        [SerializeField] private string upgradeId = UpgradeShop.DamageId;
         [SerializeField] private Text label;
 
         private Button _button;

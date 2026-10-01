@@ -24,8 +24,8 @@ namespace SectorCleanse.Combat
         public static IReadOnlyList<Enemy> Active => ActiveEnemies;
 
         public int Lane { get; private set; }
-        public int MaxHp { get; private set; }
-        public int Hp { get; private set; }
+        public double MaxHp { get; private set; }
+        public double Hp { get; private set; }
 
         /// <summary>True once killed or despawned; such enemies ignore further hits.</summary>
         public bool IsDead => Hp <= 0 || _despawned;
@@ -44,11 +44,11 @@ namespace SectorCleanse.Combat
         // Setup
         // ------------------------------------------------------------------
 
-        public void Initialize(int lane, int hp, float speed, LaneSystem lanes,
+        public void Initialize(int lane, double hp, float speed, LaneSystem lanes,
             PlayerController player, PlayerSquad squad)
         {
             Lane = lane;
-            MaxHp = Mathf.Max(1, hp);
+            MaxHp = System.Math.Max(1d, hp);
             Hp = MaxHp;
             _speed = speed;
             _lanes = lanes;
@@ -78,16 +78,18 @@ namespace SectorCleanse.Combat
         }
 
         /// <summary>Apply weapon damage. Kills (and pays out) at 0 HP.</summary>
-        public void TakeDamage(int amount)
+        public void TakeDamage(double amount)
         {
             if (IsDead || amount <= 0) return;
 
-            Hp = Mathf.Max(0, Hp - amount);
+            Hp = System.Math.Max(0d, Hp - amount);
             RefreshLabel();
 
-            if (Hp == 0)
+            if (Hp <= 0)
             {
-                if (GameManager.Instance) GameManager.Instance.AddRoundMoney(MaxHp);
+                // Reward = starting HP (clamped so huge HP can't overflow the int bank).
+                int reward = (int)System.Math.Min(MaxHp, int.MaxValue / 4);
+                if (GameManager.Instance) GameManager.Instance.AddRoundMoney(reward);
                 Destroy(gameObject);
             }
         }
@@ -134,7 +136,7 @@ namespace SectorCleanse.Combat
 
         private void RefreshLabel()
         {
-            if (_label) _label.text = Hp.ToString();
+            if (_label) _label.text = NumberFormat.Short(System.Math.Ceiling(Hp));
         }
     }
 }

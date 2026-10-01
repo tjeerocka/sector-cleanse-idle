@@ -4,42 +4,47 @@ using UnityEngine;
 namespace SectorCleanse.Player
 {
     /// <summary>
-    /// Shows the squad: one orange square per soldier (the player itself is the
-    /// green square this component sits on), arranged in rows just below the player
-    /// so they move with it.
+    /// Shows the deployed soldiers below the green player: one square per living
+    /// soldier, labelled with its tier and tinted by tier (T0 orange, higher tiers
+    /// shift towards red / magenta / purple). Soldiers move with the player.
     ///
-    /// Listens to <see cref="PlayerSquad.SoldierCountChanged"/>; soldier objects are
-    /// pooled and re-laid out (last row centred) whenever the count changes.
-    /// <see cref="ActiveSoldiers"/> is used by the Weapon to fire one bullet per soldier.
+    /// Rebuilt from <see cref="PlayerSquad.Soldiers"/> whenever the squad changes.
+    /// <see cref="Units"/> is used by the Weapon to fire one bullet per soldier.
     /// </summary>
     [RequireComponent(typeof(PlayerSquad))]
     [DisallowMultipleComponent]
     public class SquadFormation : MonoBehaviour
     {
+        public struct Unit
+        {
+            public Transform Transform;
+            public int Tier;
+        }
+
         [Header("Look")]
         [SerializeField] private Sprite soldierSprite;
         [SerializeField] private Color soldierColor = new Color(1f, 0.55f, 0.1f);
 
         [Tooltip("World-space size of a soldier square.")]
-        [SerializeField, Min(0.05f)] private float soldierSize = 0.25f;
+        [SerializeField, Min(0.05f)] private float soldierSize = 0.32f;
 
         [Header("Layout (world units)")]
-        [Tooltip("Soldiers per row. Keep columns × spacing.x under the lane width so all bullets stay in-lane.")]
-        [SerializeField, Min(1)] private int columns = 4;
-        [SerializeField] private Vector2 spacing = new Vector2(0.3f, 0.32f);
+        [SerializeField, Min(1)] private int columns = 5;
+        [SerializeField] private Vector2 spacing = new Vector2(0.36f, 0.38f);
 
         [Tooltip("Distance from the player's centre down to the first row.")]
-        [SerializeField, Min(0f)] private float firstRowOffset = 0.65f;
+        [SerializeField, Min(0f)] private float firstRowOffset = 0.7f;
 
-        [Tooltip("Soldiers beyond this are still counted (health) but not drawn / don't fire.")]
-        [SerializeField, Min(0)] private int maxVisible = 24;
+        private static Font _labelFont;
 
         private readonly List<Transform> _pool = new List<Transform>();
-        private readonly List<Transform> _active = new List<Transform>();
+        private readonly List<SpriteRenderer> _renderers = new List<SpriteRenderer>();
+        private readonly List<TextMesh> _labels = new List<TextMesh>();
+        private readonly List<Unit> _units = new List<Unit>();
         private PlayerSquad _squad;
 
-        /// <summary>Visible soldier transforms (excludes the player).</summary>
-        public IReadOnlyList<Transform> ActiveSoldiers => _active;
+        /// <summary>Visible soldiers (excludes the player) with their tiers.</summary>
+        public IReadOnlyList<Unit> Units => _units;
 
         private void Awake()
         {
@@ -48,32 +53,43 @@ namespace SectorCleanse.Player
 
         private void OnEnable()
         {
-            _squad.SoldierCountChanged += Refresh;
-            Refresh(_squad.SoldierCount);
+            _squad.SquadChanged += Refresh;
+            Refresh();
         }
 
         private void OnDisable()
         {
-            _squad.SoldierCountChanged -= Refresh;
+            _squad.SquadChanged -= Refresh;
         }
 
-        private void Refresh(int soldierCount)
+        private void Refresh()
         {
-            // The player is one of the soldiers; only the others get orange squares.
-            int visible = Mathf.Clamp(soldierCount - 1, 0, maxVisible);
+            var soldiers = _squad.Soldiers;
+            int count = soldiers.Count;
 
-            while (_pool.Count < visible) _pool.Add(CreateSoldier(_pool.Count));
+            while (_pool.Count < count) CreateSoldier(_pool.Count);
 
-            _active.Clear();
+            _units.Clear();
             for (int i = 0; i < _pool.Count; i++)
             {
-                bool on = i < visible;
+                bool on = i < count;
                 _pool[i].gameObject.SetActive(on);
                 if (!on) continue;
 
-                _pool[i].localPosition = LocalPositionFor(i, visible);
-                _active.Add(_pool[i]);
+                int tier = soldiers[i].Tier;
+                _pool[i].localPosition = LocalPositionFor(i, count);
+                _renderers[i].color = ColorForTier(tier);
+                _labels[i].text = tier.ToString();
+                _units.Add(new Unit { Transform = _pool[i], Tier = tier });
             }
+        }
+
+        /// <summary>T0 = base orange; each tier rotates the hue a little towards red → magenta → purple.</summary>
+        private Color ColorForTier(int tier)
+        {
+            Color.RGBToHSV(soldierColor, out float h, out float s, out float v);
+            h = Mathf.Repeat(h - tier * 0.035f, 1f);
+            return Color.HSVToRGB(h, s, v);
         }
 
         private Vector3 LocalPositionFor(int index, int total)
@@ -91,7 +107,7 @@ namespace SectorCleanse.Player
             return new Vector3(world.x / parentScale.x, world.y / parentScale.y, 0f);
         }
 
-        private Transform CreateSoldier(int index)
+        private void CreateSoldier(int index)
         {
             var go = new GameObject($"Soldier_{index}");
             go.transform.SetParent(transform, false);
@@ -103,7 +119,26 @@ namespace SectorCleanse.Player
             sr.sprite = soldierSprite;
             sr.color = soldierColor;
             sr.sortingOrder = 9;
-            return go.transform;
+
+            // Tier number on the square.
+            if (!_labelFont) _labelFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            var labelGo = new GameObject("Tier");
+            labelGo.transform.SetParent(go.transform, false);
+            var label = labelGo.AddComponent<TextMesh>();
+            label.font = _labelFont;
+            label.anchor = TextAnchor.MiddleCenter;
+            label.alignment = TextAlignment.Center;
+            label.fontSize = 64;
+            label.characterSize = 0.12f;
+            label.fontStyle = FontStyle.Bold;
+            label.color = Color.white;
+            var labelRenderer = labelGo.GetComponent<MeshRenderer>();
+            labelRenderer.sharedMaterial = _labelFont.material;
+            labelRenderer.sortingOrder = 21;
+
+            _pool.Add(go.transform);
+            _renderers.Add(sr);
+            _labels.Add(label);
         }
     }
 }

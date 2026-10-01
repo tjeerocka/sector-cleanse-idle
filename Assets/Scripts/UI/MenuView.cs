@@ -8,22 +8,26 @@ using UnityEngine.UI;
 namespace SectorCleanse.UI
 {
     /// <summary>
-    /// Start-menu info: banked money and the stats you'll deploy with.
-    /// Refreshes the stats after every shop purchase.
+    /// Start-menu info and run buttons:
+    ///  * bank total and the stats of the front line you'll deploy with;
+    ///  * DEPLOY when no run is saved, otherwise CONTINUE + ABANDON with the saved
+    ///    run's wave and money.
+    /// Refreshes after shop purchases, barracks changes and save changes.
     /// </summary>
     public class MenuView : MonoBehaviour
     {
         [SerializeField] private Text bankLabel;
         [SerializeField] private Text statsLabel;
 
-        [Tooltip("Optional. Found automatically if left empty (also when inactive).")]
+        [Header("Run buttons (swapped depending on whether a run is saved)")]
+        [SerializeField] private GameObject deployButton;
+        [SerializeField] private GameObject continueButton;
+        [SerializeField] private GameObject abandonButton;
+
+        [Header("Optional, found automatically if left empty")]
         [SerializeField] private Weapon weapon;
-
-        [Tooltip("Optional. Found automatically if left empty (also when inactive).")]
-        [SerializeField] private PlayerSquad squad;
-
-        [Tooltip("Optional. Found automatically if left empty.")]
         [SerializeField] private UpgradeShop shop;
+        [SerializeField] private Barracks barracks;
 
         private int _shownBank = -1;
 
@@ -31,20 +35,24 @@ namespace SectorCleanse.UI
         {
             // The player lives under GameplayRoot, which is inactive while the menu is up.
             if (!weapon) weapon = FindAnyObjectByType<Weapon>(FindObjectsInactive.Include);
-            if (!squad) squad = FindAnyObjectByType<PlayerSquad>(FindObjectsInactive.Include);
             if (!shop) shop = FindAnyObjectByType<UpgradeShop>();
+            if (!barracks) barracks = FindAnyObjectByType<Barracks>();
         }
 
         private void OnEnable()
         {
-            if (shop) shop.UpgradesChanged += RefreshStats;
+            if (shop) shop.UpgradesChanged += Refresh;
+            if (barracks) barracks.Changed += Refresh;
+            if (GameManager.Instance) GameManager.Instance.SavedRunChanged += Refresh;
             _shownBank = -1;
-            RefreshStats();
+            Refresh();
         }
 
         private void OnDisable()
         {
-            if (shop) shop.UpgradesChanged -= RefreshStats;
+            if (shop) shop.UpgradesChanged -= Refresh;
+            if (barracks) barracks.Changed -= Refresh;
+            if (GameManager.Instance) GameManager.Instance.SavedRunChanged -= Refresh;
         }
 
         private void Update()
@@ -57,16 +65,31 @@ namespace SectorCleanse.UI
             bankLabel.text = $"BANK ${bank}";
         }
 
-        /// <summary>Call after buying an upgrade so the menu shows the new values.</summary>
-        public void RefreshStats()
+        /// <summary>Re-read stats and saved-run state.</summary>
+        public void Refresh()
         {
+            RunSaveData saved = RunSave.Read();
+            bool hasRun = saved != null;
+
+            if (deployButton) deployButton.SetActive(!hasRun);
+            if (continueButton) continueButton.SetActive(hasRun);
+            if (abandonButton) abandonButton.SetActive(hasRun);
+
             if (!statsLabel) return;
 
-            string weaponStats = weapon
-                ? $"DMG {weapon.Damage}   RATE {weapon.FireRate:0.#}/s   BULLET {weapon.BulletSpeed:0.#}"
-                : "";
-            string squadStats = squad ? $"STARTING SOLDIERS {squad.StartingSoldiers}" : "";
-            statsLabel.text = $"{weaponStats}\n{squadStats}";
+            int deployed = barracks ? barracks.DeployedTotal : 0;
+            string volley = weapon && barracks
+                ? NumberFormat.Short(weapon.EstimateVolleyDamage(barracks.GetDeployedTiers()))
+                : "-";
+            string rate = weapon ? $"{weapon.FireRate:0.#}/s" : "-";
+
+            string text = $"FRONT LINE {deployed}/{Barracks.FrontLineCap}   VOLLEY DMG {volley}   FIRE RATE {rate}";
+            if (hasRun)
+            {
+                int wave = GameManager.Instance ? GameManager.Instance.WaveAt(saved.roundTime) : 1;
+                text = $"RUN IN PROGRESS: WAVE {wave}, +${saved.roundMoney}, {saved.soldiers.Count} SOLDIERS LEFT\n" + text;
+            }
+            statsLabel.text = text;
         }
     }
 }

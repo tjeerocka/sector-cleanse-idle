@@ -22,8 +22,10 @@ namespace SectorCleanse.EditorTools
     ///  * GameManager with all scene roots wired up;
     ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips), Player (movement,
     ///    squad + soldier formation, weapon), EnemySpawner and HUD;
-    ///  * MenuRoot canvas: bank total, deploy stats, a DEPLOY button hooked to
-    ///    GameManager.StartRound and the upgrade shop (UpgradeShop on GameManager);
+    ///  * MenuRoot canvas: bank total, front-line stats, DEPLOY / CONTINUE / ABANDON,
+    ///    the Barracks screen and the upgrade shop (Barracks + UpgradeShop live on the
+    ///    GameManager object);
+    ///  * HUD with a pause button (suspends and saves the run);
     ///  * GameOverRoot overlay with the round summary;
     ///  * an EventSystem matching the project's active input handling.
     ///
@@ -44,9 +46,6 @@ namespace SectorCleanse.EditorTools
         private static readonly Color ButtonColor = new Color(0.2f, 0.75f, 0.35f);
 
         private static readonly Color SoldierColor = new Color(1f, 0.55f, 0.1f);
-
-        /// <summary>Base squad: just the player. Extra soldiers are bought in the menu shop.</summary>
-        private const int StartingSoldiers = 1;
 
         [MenuItem("Sector Cleanse/Build Graybox Scene")]
         public static void Build()
@@ -89,7 +88,6 @@ namespace SectorCleanse.EditorTools
 
             SetRef(controller, "laneSystem", lanes);
             SetRef(controller, "worldCamera", cam);
-            SetInt(squad, "startingSoldiers", StartingSoldiers);
             SetRef(formation, "soldierSprite", square);
             SetColor(formation, "soldierColor", SoldierColor);
             SetRef(weapon, "laneSystem", lanes);
@@ -103,15 +101,16 @@ namespace SectorCleanse.EditorTools
             SetRef(spawner, "squad", squad);
             SetRef(spawner, "enemySprite", square);
 
-            CreateHud(gameplayRoot.transform, squad, weapon);
+            CreateHud(gameplayRoot.transform, gameManager, squad, weapon);
 
             // Meta-progression lives on the GameManager object (persists across rounds).
             UpgradeShop shop = gameManager.gameObject.AddComponent<UpgradeShop>();
-            SetRef(shop, "squad", squad);
             SetRef(shop, "weapon", weapon);
+            Barracks barracks = gameManager.gameObject.AddComponent<Barracks>();
+            SetRef(squad, "barracks", barracks);
 
             // --- UI ---------------------------------------------------------------
-            GameObject menuRoot = CreateMenu(gameManager, weapon, squad, shop);
+            GameObject menuRoot = CreateMenu(gameManager, weapon, shop, barracks);
             GameObject gameOverRoot = CreateGameOverOverlay();
             CreateEventSystem();
 
@@ -181,8 +180,8 @@ namespace SectorCleanse.EditorTools
             lineRenderer.sortingOrder = -5;
         }
 
-        private static GameObject CreateMenu(GameManager gameManager, Weapon weapon, PlayerSquad squad,
-            UpgradeShop shop)
+        private static GameObject CreateMenu(GameManager gameManager, Weapon weapon, UpgradeShop shop,
+            Barracks barracks)
         {
             Canvas canvas = CreateCanvas("MenuRoot", 0);
 
@@ -190,32 +189,119 @@ namespace SectorCleanse.EditorTools
                 new Vector2(0f, 650f), new Vector2(1000f, 300f));
 
             Text bankLabel = CreateText(canvas.transform, "Bank", "BANK $0", 72,
-                new Vector2(0f, 430f), new Vector2(1000f, 120f));
+                new Vector2(0f, 470f), new Vector2(1000f, 120f));
             bankLabel.color = new Color(1f, 0.85f, 0.3f);
 
-            Text statsLabel = CreateText(canvas.transform, "Stats", "", 40,
-                new Vector2(0f, 270f), new Vector2(1000f, 140f));
+            Text statsLabel = CreateText(canvas.transform, "Stats", "", 34,
+                new Vector2(0f, 340f), new Vector2(1040f, 140f));
 
-            MenuView menuView = canvas.gameObject.AddComponent<MenuView>();
-            SetRef(menuView, "bankLabel", bankLabel);
-            SetRef(menuView, "statsLabel", statsLabel);
-            SetRef(menuView, "weapon", weapon);
-            SetRef(menuView, "squad", squad);
-            SetRef(menuView, "shop", shop);
-
+            // --- Run buttons: DEPLOY (no saved run) or CONTINUE + ABANDON ---
             Button deploy = CreateButton(canvas.transform, "DeployButton", "DEPLOY", 64,
-                new Vector2(0f, 50f), new Vector2(500f, 160f), ButtonColor);
+                new Vector2(0f, 170f), new Vector2(500f, 150f), ButtonColor);
             UnityEventTools.AddPersistentListener(deploy.onClick, gameManager.StartRound);
+
+            Button resume = CreateButton(canvas.transform, "ContinueButton", "CONTINUE", 64,
+                new Vector2(0f, 170f), new Vector2(500f, 150f), new Color(0.2f, 0.6f, 0.95f));
+            UnityEventTools.AddPersistentListener(resume.onClick, gameManager.ContinueRun);
+
+            Button abandon = CreateButton(canvas.transform, "AbandonButton", "ABANDON RUN (BANK MONEY)", 30,
+                new Vector2(0f, 50f), new Vector2(500f, 80f), new Color(0.6f, 0.2f, 0.2f));
+            UnityEventTools.AddPersistentListener(abandon.onClick, gameManager.AbandonRun);
+
+            // --- Barracks ---
+            GameObject barracksPanel = CreateBarracksPanel(canvas.transform, barracks);
+            Button openBarracks = CreateButton(canvas.transform, "BarracksButton", "BARRACKS", 52,
+                new Vector2(0f, -80f), new Vector2(820f, 130f), new Color(0.95f, 0.55f, 0.15f));
+            UnityEventTools.AddBoolPersistentListener(openBarracks.onClick, barracksPanel.SetActive, true);
+            barracksPanel.transform.SetAsLastSibling(); // Draw on top of the menu.
 
             // --- Shop ---
             CreateText(canvas.transform, "ShopHeader", "SHOP", 56,
                 new Vector2(0f, -200f), new Vector2(1000f, 100f));
+            CreateShopRow(canvas.transform, shop, UpgradeShop.DamageId, -320f, new Color(0.85f, 0.3f, 0.3f));
+            CreateShopRow(canvas.transform, shop, UpgradeShop.FireRateId, -480f, new Color(0.3f, 0.55f, 0.95f));
 
-            CreateShopRow(canvas.transform, shop, UpgradeShop.RecruitSoldierId, -330f, new Color(0.95f, 0.55f, 0.15f));
-            CreateShopRow(canvas.transform, shop, UpgradeShop.DamageId, -500f, new Color(0.85f, 0.3f, 0.3f));
-            CreateShopRow(canvas.transform, shop, UpgradeShop.FireRateId, -670f, new Color(0.3f, 0.55f, 0.95f));
+            MenuView menuView = canvas.gameObject.AddComponent<MenuView>();
+            SetRef(menuView, "bankLabel", bankLabel);
+            SetRef(menuView, "statsLabel", statsLabel);
+            SetRef(menuView, "deployButton", deploy.gameObject);
+            SetRef(menuView, "continueButton", resume.gameObject);
+            SetRef(menuView, "abandonButton", abandon.gameObject);
+            SetRef(menuView, "weapon", weapon);
+            SetRef(menuView, "shop", shop);
+            SetRef(menuView, "barracks", barracks);
 
             return canvas.gameObject;
+        }
+
+        /// <summary>Full-screen barracks overlay: recruit button, scrollable tier list, close button.</summary>
+        private static GameObject CreateBarracksPanel(Transform parent, Barracks barracks)
+        {
+            var panel = new GameObject("BarracksPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(parent, false);
+            Stretch((RectTransform)panel.transform);
+            panel.GetComponent<Image>().color = new Color(0.08f, 0.09f, 0.12f, 0.97f);
+
+            Text header = CreateText(panel.transform, "Header", "BARRACKS", 56,
+                new Vector2(0f, 820f), new Vector2(1040f, 100f));
+            Text info = CreateText(panel.transform, "Info", "", 28,
+                new Vector2(0f, 735f), new Vector2(1040f, 80f));
+            info.color = new Color(0.8f, 0.8f, 0.85f);
+
+            Button recruit = CreateButton(panel.transform, "RecruitButton", "", 44,
+                new Vector2(0f, 620f), new Vector2(820f, 130f), new Color(0.95f, 0.55f, 0.15f));
+
+            // Scroll view with a vertical list of tier rows.
+            var scroll = new GameObject("TierList", typeof(RectTransform), typeof(Image), typeof(ScrollRect));
+            scroll.transform.SetParent(panel.transform, false);
+            var scrollRt = (RectTransform)scroll.transform;
+            scrollRt.anchoredPosition = new Vector2(0f, -70f);
+            scrollRt.sizeDelta = new Vector2(1040f, 1220f);
+            scroll.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.03f);
+
+            var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(RectMask2D));
+            viewport.transform.SetParent(scroll.transform, false);
+            Stretch((RectTransform)viewport.transform);
+
+            var content = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup),
+                typeof(ContentSizeFitter));
+            content.transform.SetParent(viewport.transform, false);
+            var contentRt = (RectTransform)content.transform;
+            contentRt.anchorMin = new Vector2(0f, 1f);
+            contentRt.anchorMax = new Vector2(1f, 1f);
+            contentRt.pivot = new Vector2(0.5f, 1f);
+            contentRt.anchoredPosition = Vector2.zero;
+            contentRt.sizeDelta = Vector2.zero;
+
+            var layout = content.GetComponent<VerticalLayoutGroup>();
+            layout.spacing = 8f;
+            layout.padding = new RectOffset(10, 10, 10, 10);
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            content.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var scrollRect = scroll.GetComponent<ScrollRect>();
+            scrollRect.content = contentRt;
+            scrollRect.viewport = (RectTransform)viewport.transform;
+            scrollRect.horizontal = false;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+
+            Button close = CreateButton(panel.transform, "CloseButton", "CLOSE", 48,
+                new Vector2(0f, -820f), new Vector2(400f, 120f), new Color(0.4f, 0.4f, 0.45f));
+            UnityEventTools.AddBoolPersistentListener(close.onClick, panel.SetActive, false);
+
+            BarracksView view = panel.AddComponent<BarracksView>();
+            SetRef(view, "barracks", barracks);
+            SetRef(view, "headerLabel", header);
+            SetRef(view, "infoLabel", info);
+            SetRef(view, "recruitButton", recruit);
+            SetRef(view, "recruitLabel", recruit.GetComponentInChildren<Text>());
+            SetRef(view, "rowContainer", contentRt);
+
+            panel.SetActive(false);
+            return panel;
         }
 
         private static void CreateShopRow(Transform parent, UpgradeShop shop, string upgradeId, float y, Color color)
@@ -232,10 +318,20 @@ namespace SectorCleanse.EditorTools
         /// Side-column HUD (money left, combat stats right) so it never covers the lanes.
         /// Lives under GameplayRoot so it hides with the round.
         /// </summary>
-        private static void CreateHud(Transform gameplayRoot, PlayerSquad squad, Weapon weapon)
+        private static void CreateHud(Transform gameplayRoot, GameManager gameManager, PlayerSquad squad,
+            Weapon weapon)
         {
             Canvas canvas = CreateCanvas("HUD", 5);
             canvas.transform.SetParent(gameplayRoot, false);
+
+            // Pause: saves the run and returns to the menu (CONTINUE resumes it).
+            Button pause = CreateButton(canvas.transform, "PauseButton", "II", 56,
+                Vector2.zero, new Vector2(150f, 110f), new Color(0.3f, 0.3f, 0.35f, 0.9f));
+            var pauseRt = (RectTransform)pause.transform;
+            pauseRt.anchorMin = pauseRt.anchorMax = new Vector2(0.5f, 1f);
+            pauseRt.pivot = new Vector2(0.5f, 1f);
+            pauseRt.anchoredPosition = new Vector2(0f, -30f);
+            UnityEventTools.AddPersistentListener(pause.onClick, gameManager.SuspendRun);
 
             Text left = CreateCornerText(canvas.transform, "LeftStats", rightSide: false);
             Text right = CreateCornerText(canvas.transform, "RightStats", rightSide: true);
@@ -399,19 +495,6 @@ namespace SectorCleanse.EditorTools
                 return;
             }
             prop.stringValue = value;
-            so.ApplyModifiedPropertiesWithoutUndo();
-        }
-
-        private static void SetInt(Object target, string fieldName, int value)
-        {
-            var so = new SerializedObject(target);
-            SerializedProperty prop = so.FindProperty(fieldName);
-            if (prop == null)
-            {
-                Debug.LogError($"[Sector Cleanse] Field '{fieldName}' not found on {target.GetType().Name}.");
-                return;
-            }
-            prop.intValue = value;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
