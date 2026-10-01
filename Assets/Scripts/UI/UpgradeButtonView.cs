@@ -61,7 +61,10 @@ namespace SectorCleanse.UI
 
             bool maxed = shop.IsMaxed(upgradeId);
             string price = maxed ? "MAX" : $"${shop.GetCost(upgradeId)}";
-            label.text = $"{upgrade.displayName}   {price}\nOWNED {shop.GetLevel(upgradeId)}";
+            string owned = upgrade.maxLevel > 0
+                ? $"{shop.GetLevel(upgradeId)}/{upgrade.maxLevel}"
+                : shop.GetLevel(upgradeId).ToString();
+            label.text = $"{upgrade.displayName}   {price}\n{upgrade.description}   OWNED {owned}";
             _button.interactable = !maxed && shop.CanAfford(upgradeId);
         }
     }

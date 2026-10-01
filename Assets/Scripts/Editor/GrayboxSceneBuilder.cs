@@ -108,6 +108,7 @@ namespace SectorCleanse.EditorTools
             // Meta-progression lives on the GameManager object (persists across rounds).
             UpgradeShop shop = gameManager.gameObject.AddComponent<UpgradeShop>();
             SetRef(shop, "squad", squad);
+            SetRef(shop, "weapon", weapon);
 
             // --- UI ---------------------------------------------------------------
             GameObject menuRoot = CreateMenu(gameManager, weapon, squad, shop);
@@ -210,14 +211,21 @@ namespace SectorCleanse.EditorTools
             CreateText(canvas.transform, "ShopHeader", "SHOP", 56,
                 new Vector2(0f, -200f), new Vector2(1000f, 100f));
 
-            Button recruit = CreateButton(canvas.transform, "RecruitSoldierButton", "", 44,
-                new Vector2(0f, -360f), new Vector2(760f, 170f), new Color(0.95f, 0.55f, 0.15f));
-            UpgradeButtonView recruitView = recruit.gameObject.AddComponent<UpgradeButtonView>();
-            SetRef(recruitView, "shop", shop);
-            SetString(recruitView, "upgradeId", UpgradeShop.RecruitSoldierId);
-            SetRef(recruitView, "label", recruit.GetComponentInChildren<Text>());
+            CreateShopRow(canvas.transform, shop, UpgradeShop.RecruitSoldierId, -330f, new Color(0.95f, 0.55f, 0.15f));
+            CreateShopRow(canvas.transform, shop, UpgradeShop.DamageId, -500f, new Color(0.85f, 0.3f, 0.3f));
+            CreateShopRow(canvas.transform, shop, UpgradeShop.FireRateId, -670f, new Color(0.3f, 0.55f, 0.95f));
 
             return canvas.gameObject;
+        }
+
+        private static void CreateShopRow(Transform parent, UpgradeShop shop, string upgradeId, float y, Color color)
+        {
+            Button button = CreateButton(parent, $"Shop_{upgradeId}", "", 40,
+                new Vector2(0f, y), new Vector2(820f, 150f), color);
+            UpgradeButtonView view = button.gameObject.AddComponent<UpgradeButtonView>();
+            SetRef(view, "shop", shop);
+            SetString(view, "upgradeId", upgradeId);
+            SetRef(view, "label", button.GetComponentInChildren<Text>());
         }
 
         /// <summary>
@@ -241,7 +249,7 @@ namespace SectorCleanse.EditorTools
 
         private static Text CreateCornerText(Transform parent, string name, bool rightSide)
         {
-            Text text = CreateText(parent, name, "", 40, Vector2.zero, Vector2.zero);
+            Text text = CreateText(parent, name, "", 52, Vector2.zero, Vector2.zero);
             text.alignment = rightSide ? TextAnchor.UpperRight : TextAnchor.UpperLeft;
             text.horizontalOverflow = HorizontalWrapMode.Overflow;
 
@@ -251,7 +259,7 @@ namespace SectorCleanse.EditorTools
             rt.anchorMax = new Vector2(x, 1f);
             rt.pivot = new Vector2(x, 1f);
             rt.anchoredPosition = new Vector2(rightSide ? -40f : 40f, -40f);
-            rt.sizeDelta = new Vector2(420f, 240f);
+            rt.sizeDelta = new Vector2(520f, 300f);
             return text;
         }
 
@@ -302,7 +310,9 @@ namespace SectorCleanse.EditorTools
             var scaler = go.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080f, 1920f);
-            scaler.matchWidthOrHeight = 0.5f;
+            // Match height so the full portrait layout always fits vertically, whatever the
+            // aspect ratio (editor Game view, tablets, tall phones).
+            scaler.matchWidthOrHeight = 1f;
             return canvas;
         }
 

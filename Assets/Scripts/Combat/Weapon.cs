@@ -9,9 +9,10 @@ namespace SectorCleanse.Combat
     /// and, if a <see cref="SquadFormation"/> is present, one from every visible
     /// soldier in the same volley (soldiers = extra firepower).
     ///
-    /// Stats are split into a base value (set by meta-upgrades via
-    /// <see cref="SetBaseStats"/>) and per-round multipliers (for buffs/debuffs such
-    /// as "Lowered Fire Rate"). Multipliers reset at the start of each round.
+    /// Stat formula: (base + permanent shop bonus) × per-round multiplier.
+    ///  * Base: tuning values on this component (or <see cref="SetBaseStats"/>).
+    ///  * Shop bonus: set by the UpgradeShop via <see cref="SetUpgradeBonuses"/>.
+    ///  * Multipliers: buffs/debuffs such as "Lowered Fire Rate"; reset each round.
     /// </summary>
     [DisallowMultipleComponent]
     public class Weapon : MonoBehaviour
@@ -20,7 +21,7 @@ namespace SectorCleanse.Combat
         [Tooltip("Optional. Falls back to LaneSystem.Instance. Used to know when bullets leave the play area.")]
         [SerializeField] private LaneSystem laneSystem;
 
-        [Header("Base stats (permanent upgrades raise these)")]
+        [Header("Base stats (shop upgrades add on top)")]
         [SerializeField, Min(1)] private int baseDamage = 1;
 
         [Tooltip("Shots per second.")]
@@ -38,8 +39,8 @@ namespace SectorCleanse.Combat
         /// <summary>Temporary fire-rate modifier (buffs / "Lowered Fire Rate"). Reset to 1 each round.</summary>
         public float FireRateMultiplier { get; set; } = 1f;
 
-        public int Damage => Mathf.Max(1, Mathf.RoundToInt(baseDamage * DamageMultiplier));
-        public float FireRate => Mathf.Max(0.1f, baseFireRate * FireRateMultiplier);
+        public int Damage => Mathf.Max(1, Mathf.RoundToInt((baseDamage + _bonusDamage) * DamageMultiplier));
+        public float FireRate => Mathf.Max(0.1f, (baseFireRate + _bonusFireRate) * FireRateMultiplier);
         public float BulletSpeed => bulletSpeed;
 
         private LaneSystem Lanes => laneSystem ? laneSystem : LaneSystem.Instance;
@@ -47,6 +48,8 @@ namespace SectorCleanse.Combat
         private Transform _bulletContainer;
         private SquadFormation _formation;
         private float _cooldown;
+        private int _bonusDamage;
+        private float _bonusFireRate;
 
         // ------------------------------------------------------------------
         // Unity lifecycle
@@ -82,11 +85,18 @@ namespace SectorCleanse.Combat
         // Public API
         // ------------------------------------------------------------------
 
-        /// <summary>Set permanent stats (called by the meta-progression system before a round).</summary>
+        /// <summary>Override the base tuning values (e.g. when switching starting weapon).</summary>
         public void SetBaseStats(int damage, float fireRate)
         {
             baseDamage = Mathf.Max(1, damage);
             baseFireRate = Mathf.Max(0.1f, fireRate);
+        }
+
+        /// <summary>Permanent bonuses bought in the shop (added to the base stats).</summary>
+        public void SetUpgradeBonuses(int bonusDamage, float bonusFireRate)
+        {
+            _bonusDamage = Mathf.Max(0, bonusDamage);
+            _bonusFireRate = Mathf.Max(0f, bonusFireRate);
         }
 
         // ------------------------------------------------------------------

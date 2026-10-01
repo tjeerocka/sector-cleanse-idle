@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using SectorCleanse.Combat;
 using SectorCleanse.Core;
 using SectorCleanse.Player;
 using UnityEngine;
@@ -13,14 +14,16 @@ namespace SectorCleanse.Meta
     /// fixed step per level. Bought levels are applied to gameplay components and
     /// take effect from the next round.
     ///
-    /// Currently: Recruit Soldier (+1 starting soldier per level). Damage, fire
-    /// rate and starting weapons slot in as more entries + a line in <see cref="ApplyAll"/>.
+    /// Upgrades: Recruit Soldier (+1 starting soldier), Damage (+1 per shot),
+    /// Fire Rate (+0.5 shots/s). New upgrades = a list entry + a line in <see cref="ApplyAll"/>.
     /// </summary>
     [DefaultExecutionOrder(-90)] // Load levels before menu UI reads them.
     [DisallowMultipleComponent]
     public class UpgradeShop : MonoBehaviour
     {
         public const string RecruitSoldierId = "recruit_soldier";
+        public const string DamageId = "damage";
+        public const string FireRateId = "fire_rate";
         private const string SaveKeyPrefix = "SectorCleanse.Upgrade.";
 
         [Serializable]
@@ -29,6 +32,8 @@ namespace SectorCleanse.Meta
             [Tooltip("Stable save key. Don't rename after release or players lose progress.")]
             public string id;
             public string displayName;
+            [Tooltip("Short effect text shown on the shop button.")]
+            public string description;
             [Min(0)] public int baseCost = 25;
             [Tooltip("Added to the cost for every level already owned.")]
             [Min(0)] public int costStep = 25;
@@ -39,9 +44,21 @@ namespace SectorCleanse.Meta
         [Tooltip("Optional. Found automatically if left empty (also when inactive).")]
         [SerializeField] private PlayerSquad squad;
 
+        [Tooltip("Optional. Found automatically if left empty (also when inactive).")]
+        [SerializeField] private Weapon weapon;
+
+        [Header("Effect per level")]
+        [SerializeField, Min(0)] private int damagePerLevel = 1;
+        [SerializeField, Min(0f)] private float fireRatePerLevel = 0.5f;
+
         [SerializeField] private List<Upgrade> upgrades = new List<Upgrade>
         {
-            new Upgrade { id = RecruitSoldierId, displayName = "RECRUIT SOLDIER", baseCost = 25, costStep = 25 },
+            new Upgrade { id = RecruitSoldierId, displayName = "RECRUIT SOLDIER", description = "+1 SOLDIER",
+                baseCost = 25, costStep = 25 },
+            new Upgrade { id = DamageId, displayName = "DAMAGE", description = "+1 DMG PER BULLET",
+                baseCost = 40, costStep = 40 },
+            new Upgrade { id = FireRateId, displayName = "FIRE RATE", description = "+0.5 SHOTS/S",
+                baseCost = 30, costStep = 30, maxLevel = 20 },
         };
 
         /// <summary>Raised after any purchase or reset.</summary>
@@ -56,6 +73,7 @@ namespace SectorCleanse.Meta
         private void Awake()
         {
             if (!squad) squad = FindAnyObjectByType<PlayerSquad>(FindObjectsInactive.Include);
+            if (!weapon) weapon = FindAnyObjectByType<Weapon>(FindObjectsInactive.Include);
 
             foreach (Upgrade upgrade in upgrades)
                 _levels[upgrade.id] = PlayerPrefs.GetInt(SaveKeyPrefix + upgrade.id, 0);
@@ -114,6 +132,12 @@ namespace SectorCleanse.Meta
         private void ApplyAll()
         {
             if (squad) squad.SetBonusSoldiers(GetLevel(RecruitSoldierId));
+            if (weapon)
+            {
+                weapon.SetUpgradeBonuses(
+                    GetLevel(DamageId) * damagePerLevel,
+                    GetLevel(FireRateId) * fireRatePerLevel);
+            }
         }
 
 #if UNITY_EDITOR
