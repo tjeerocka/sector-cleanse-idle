@@ -213,13 +213,15 @@ namespace SectorCleanse.EditorTools
             Button openBarracks = CreateButton(canvas.transform, "BarracksButton", "BARRACKS", 52,
                 new Vector2(0f, -80f), new Vector2(820f, 130f), new Color(0.95f, 0.55f, 0.15f));
             UnityEventTools.AddBoolPersistentListener(openBarracks.onClick, barracksPanel.SetActive, true);
-            barracksPanel.transform.SetAsLastSibling(); // Draw on top of the menu.
 
             // --- Shop ---
             CreateText(canvas.transform, "ShopHeader", "SHOP", 56,
                 new Vector2(0f, -200f), new Vector2(1000f, 100f));
             CreateShopRow(canvas.transform, shop, UpgradeShop.DamageId, -320f, new Color(0.85f, 0.3f, 0.3f));
             CreateShopRow(canvas.transform, shop, UpgradeShop.FireRateId, -480f, new Color(0.3f, 0.55f, 0.95f));
+
+            // Created after everything else in the menu so the open overlay draws (and blocks clicks) on top.
+            barracksPanel.transform.SetAsLastSibling();
 
             MenuView menuView = canvas.gameObject.AddComponent<MenuView>();
             SetRef(menuView, "bankLabel", bankLabel);
@@ -512,8 +514,14 @@ namespace SectorCleanse.EditorTools
             File.WriteAllBytes(SquareSpritePath, tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
 
+            AssetDatabase.Refresh(); // Register the new folder before importing into it.
             AssetDatabase.ImportAsset(SquareSpritePath);
-            var importer = (TextureImporter)AssetImporter.GetAtPath(SquareSpritePath);
+            var importer = AssetImporter.GetAtPath(SquareSpritePath) as TextureImporter;
+            if (importer == null)
+            {
+                Debug.LogError($"[Sector Cleanse] Could not import {SquareSpritePath}.");
+                return null;
+            }
             importer.textureType = TextureImporterType.Sprite;
             importer.spriteImportMode = SpriteImportMode.Single;
             importer.spritePixelsPerUnit = 4f; // 4px texture -> exactly 1 world unit.

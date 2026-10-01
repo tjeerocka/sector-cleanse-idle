@@ -74,7 +74,10 @@ namespace SectorCleanse.Player
 
         private void Start()
         {
-            SnapToLane(Lanes ? Lanes.CenterLane : 0);
+            // With a GameManager, RoundStarted positions the player (and a continued run
+            // restores its saved position). Start can run a frame later than that, so only
+            // snap here when testing without a GameManager.
+            if (!GameManager.Instance) SnapToLane(Lanes ? Lanes.CenterLane : 0);
         }
 
         private void Update()

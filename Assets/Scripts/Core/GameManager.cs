@@ -261,12 +261,12 @@ namespace SectorCleanse.Core
         /// <summary>Immediately show the start menu (e.g. a "skip" button on the game-over overlay).</summary>
         public void ReturnToMenu()
         {
+            if (IsPlaying) EndRound(); // Never abandon a round without banking its money.
             if (_returnToMenuRoutine != null)
             {
                 StopCoroutine(_returnToMenuRoutine);
                 _returnToMenuRoutine = null;
             }
-            if (IsPlaying) EndRound(); // Never abandon a round without banking its money.
             SetState(GameState.MainMenu);
         }
 
