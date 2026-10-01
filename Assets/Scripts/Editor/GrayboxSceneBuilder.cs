@@ -1,6 +1,8 @@
 using System.IO;
+using SectorCleanse.Combat;
 using SectorCleanse.Core;
 using SectorCleanse.Player;
+using SectorCleanse.UI;
 using UnityEditor;
 using UnityEditor.Events;
 using UnityEditor.SceneManagement;
@@ -17,7 +19,8 @@ namespace SectorCleanse.EditorTools
     /// Creates (or rebuilds) <c>Assets/Scenes/Graybox.unity</c> containing:
     ///  * an orthographic 2D camera;
     ///  * GameManager with all scene roots wired up;
-    ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips) and Player;
+    ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips), Player (movement,
+    ///    squad, weapon), EnemySpawner and HUD;
     ///  * MenuRoot canvas with a DEPLOY button hooked to GameManager.StartRound;
     ///  * GameOverRoot overlay;
     ///  * an EventSystem matching the project's active input handling.
@@ -37,6 +40,9 @@ namespace SectorCleanse.EditorTools
         private static readonly Color PlayerLineColor = new Color(0.3f, 1f, 0.4f, 0.6f);
         private static readonly Color PlayerColor = new Color(0.2f, 0.9f, 0.35f);
         private static readonly Color ButtonColor = new Color(0.2f, 0.75f, 0.35f);
+
+        /// <summary>Graybox starting squad size (soldiers = health) so a single leak isn't instant death.</summary>
+        private const int StartingSoldiers = 10;
 
         [MenuItem("Sector Cleanse/Build Graybox Scene")]
         public static void Build()
@@ -73,10 +79,24 @@ namespace SectorCleanse.EditorTools
             playerRenderer.color = PlayerColor;
             playerRenderer.sortingOrder = 10;
             PlayerController controller = playerGo.AddComponent<PlayerController>();
-            playerGo.AddComponent<PlayerSquad>();
+            PlayerSquad squad = playerGo.AddComponent<PlayerSquad>();
+            Weapon weapon = playerGo.AddComponent<Weapon>();
 
             SetRef(controller, "laneSystem", lanes);
             SetRef(controller, "worldCamera", cam);
+            SetInt(squad, "startingSoldiers", StartingSoldiers);
+            SetRef(weapon, "laneSystem", lanes);
+            SetRef(weapon, "bulletSprite", square);
+
+            var spawnerGo = new GameObject("EnemySpawner");
+            spawnerGo.transform.SetParent(gameplayRoot.transform, false);
+            EnemySpawner spawner = spawnerGo.AddComponent<EnemySpawner>();
+            SetRef(spawner, "laneSystem", lanes);
+            SetRef(spawner, "player", controller);
+            SetRef(spawner, "squad", squad);
+            SetRef(spawner, "enemySprite", square);
+
+            CreateHud(gameplayRoot.transform, squad);
 
             // --- UI ---------------------------------------------------------------
             GameObject menuRoot = CreateMenu(gameManager);
@@ -176,6 +196,25 @@ namespace SectorCleanse.EditorTools
             return canvas.gameObject;
         }
 
+        /// <summary>Top-of-screen HUD; lives under GameplayRoot so it hides with the round.</summary>
+        private static void CreateHud(Transform gameplayRoot, PlayerSquad squad)
+        {
+            Canvas canvas = CreateCanvas("HUD", 5);
+            canvas.transform.SetParent(gameplayRoot, false);
+
+            Text label = CreateText(canvas.transform, "Stats", "", 48, Vector2.zero, Vector2.zero);
+            var rt = (RectTransform)label.transform;
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            rt.anchoredPosition = new Vector2(0f, -40f);
+            rt.sizeDelta = new Vector2(0f, 100f);
+
+            HudView hud = canvas.gameObject.AddComponent<HudView>();
+            SetRef(hud, "label", label);
+            SetRef(hud, "squad", squad);
+        }
+
         private static GameObject CreateGameOverOverlay()
         {
             Canvas canvas = CreateCanvas("GameOverRoot", 10);
@@ -258,6 +297,19 @@ namespace SectorCleanse.EditorTools
                 return;
             }
             prop.objectReferenceValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetInt(Object target, string fieldName, int value)
+        {
+            var so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null)
+            {
+                Debug.LogError($"[Sector Cleanse] Field '{fieldName}' not found on {target.GetType().Name}.");
+                return;
+            }
+            prop.intValue = value;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
