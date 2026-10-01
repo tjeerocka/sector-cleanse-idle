@@ -48,7 +48,14 @@ namespace SectorCleanse.UI
         /// </summary>
         public void UpdateVisibility()
         {
-            if (profile) gameObject.SetActive(!profile.HasName);
+            if (!profile)
+            {
+                // Never block the menu forever because of a wiring mistake.
+                Debug.LogError("[NameEntryView] No PlayerProfile found; hiding the name screen.", this);
+                gameObject.SetActive(false);
+                return;
+            }
+            gameObject.SetActive(!profile.HasName);
         }
 
         private void ClearError(string _)

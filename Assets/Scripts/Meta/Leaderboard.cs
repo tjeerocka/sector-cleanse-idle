@@ -30,13 +30,14 @@ namespace SectorCleanse.Meta
         /// <summary>Top <paramref name="count"/> entries, best first.</summary>
         void GetTop(int count, Action<List<LeaderboardEntry>> callback);
 
-        /// <summary>1-based rank of a player, or 0 if not on the board.</summary>
+        /// <summary>1-based rank of a player, or 0 if not on the board (e.g. no finished run yet).</summary>
         void GetRank(string name, Action<int> callback);
     }
 
     /// <summary>
     /// Device-local leaderboard stored as JSON in PlayerPrefs. Every name ever
-    /// registered on this device is on the board, so names are unique per device.
+    /// registered on this device is reserved (unique per device); players only
+    /// appear in the ranking once they have finished a run.
     /// Swap for an online service in <see cref="PlayerProfile.CreateLeaderboardService"/>.
     /// </summary>
     public class LocalLeaderboardService : ILeaderboardService
@@ -113,9 +114,10 @@ namespace SectorCleanse.Meta
 
         private LeaderboardEntry Find(string name) => _data.entries.Find(e => SameName(e.name, name));
 
+        /// <summary>Ranked entries; registered names without a finished run are left out.</summary>
         private List<LeaderboardEntry> Sorted()
         {
-            var sorted = new List<LeaderboardEntry>(_data.entries);
+            var sorted = _data.entries.FindAll(e => e.bestWave > 0 || e.bestRunMoney > 0);
             sorted.Sort((a, b) =>
             {
                 int byWave = b.bestWave.CompareTo(a.bestWave);
