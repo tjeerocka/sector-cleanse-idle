@@ -75,7 +75,7 @@ namespace SectorCleanse.UI
             {
                 infoLabel.text = barracks.FrontLineLocked
                     ? "FRONT LINE LOCKED: A RUN IS IN PROGRESS. CONTINUE OR ABANDON IT FIRST."
-                    : $"{Barracks.ReserveCap} IN RESERVE MERGE INTO 1 OF THE NEXT TIER (x{Barracks.ReserveCap} DMG/HP).";
+                    : $"MERGE {Barracks.ReserveCap} OF A TIER INTO 1 OF THE NEXT (x{Barracks.ReserveCap} DMG/HP). RESERVE IS USED FIRST, THEN THE FRONT LINE.";
             }
 
             if (recruitButton)

@@ -49,12 +49,12 @@ namespace SectorCleanse.Combat
         /// <summary>Damage of the player's own bullet.</summary>
         public double PlayerDamage => DamageFor(baseDamage);
 
-        /// <summary>Total damage of one volley from the current squad (player + living soldiers).</summary>
-        public double VolleyDamage
+        /// <summary>Combined damage of one volley from all living soldiers (excludes the player).</summary>
+        public double SoldierDamage
         {
             get
             {
-                double total = PlayerDamage;
+                double total = 0d;
                 if (_formation)
                 {
                     foreach (SquadFormation.Unit unit in _formation.Units)
@@ -64,10 +64,10 @@ namespace SectorCleanse.Combat
             }
         }
 
-        /// <summary>Volley damage for a planned front line (menu preview).</summary>
-        public double EstimateVolleyDamage(IEnumerable<int> soldierTiers)
+        /// <summary>Combined soldier damage for a planned front line (menu preview).</summary>
+        public double EstimateSoldierDamage(IEnumerable<int> soldierTiers)
         {
-            double total = PlayerDamage;
+            double total = 0d;
             foreach (int tier in soldierTiers) total += DamageFor(Barracks.PowerOfTier(tier));
             return total;
         }

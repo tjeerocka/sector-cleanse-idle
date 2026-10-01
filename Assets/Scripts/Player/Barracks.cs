@@ -12,8 +12,10 @@ namespace SectorCleanse.Player
     ///  * Soldiers have a tier T0..T100. Damage (and HP) = 5^tier: T0 = 1, T1 = 5, T2 = 25…
     ///  * Each soldier is either in RESERVE or on the FRONT LINE (deployed).
     ///  * Reserve holds at most <see cref="ReserveCap"/> of each tier.
-    ///  * <see cref="ReserveCap"/> reserve soldiers of tier N merge into 1 soldier of
-    ///    tier N+1 (which lands in reserve, so that tier's reserve must have room).
+    ///  * <see cref="ReserveCap"/> owned soldiers of tier N merge into 1 soldier of
+    ///    tier N+1. Reserve soldiers are used first, then deployed ones (which lowers
+    ///    the front-line count). The new soldier goes to reserve, or to the front
+    ///    line if that tier's reserve is full.
     ///  * At most <see cref="FrontLineCap"/> soldiers are deployed (plus the player).
     ///  * Bought T0 soldiers auto-deploy while the front line has room, else go to reserve.
     ///  * The front line is locked while a suspended run exists (those soldiers are
@@ -99,10 +101,20 @@ namespace SectorCleanse.Player
             Reserve(0) < ReserveCap &&
             GameManager.Instance && GameManager.Instance.BankedMoney >= RecruitCost;
 
-        public bool CanMerge(int tier) =>
-            tier >= 0 && tier < MaxTier &&
-            Reserve(tier) >= ReserveCap &&
-            Reserve(tier + 1) < ReserveCap;
+        public bool CanMerge(int tier)
+        {
+            if (tier < 0 || tier >= MaxTier || Owned(tier) < ReserveCap) return false;
+
+            int fromFront = MergeTakesFromFront(tier);
+            if (fromFront > 0 && FrontLineLocked) return false; // Those soldiers are out on a run.
+
+            bool reserveRoom = Reserve(tier + 1) < ReserveCap;
+            bool frontRoom = !FrontLineLocked && DeployedTotal - fromFront < FrontLineCap;
+            return reserveRoom || frontRoom;
+        }
+
+        /// <summary>How many deployed soldiers a merge of this tier would use (reserve goes first).</summary>
+        public int MergeTakesFromFront(int tier) => Mathf.Max(0, ReserveCap - Reserve(tier));
 
         public bool CanDeploy(int tier) =>
             !FrontLineLocked && Reserve(tier) > 0 && DeployedTotal < FrontLineCap;
@@ -138,12 +150,19 @@ namespace SectorCleanse.Player
             return true;
         }
 
-        /// <summary>Convert <see cref="ReserveCap"/> reserve soldiers of a tier into one of the next tier.</summary>
+        /// <summary>Convert <see cref="ReserveCap"/> soldiers of a tier (reserve first, then deployed) into one of the next tier.</summary>
         public bool Merge(int tier)
         {
             if (!CanMerge(tier)) return false;
+
+            int fromFront = MergeTakesFromFront(tier);
+            bool resultToFront = Reserve(tier + 1) >= ReserveCap;
+
             Add(_data.owned, tier, -ReserveCap);
+            Add(_data.deployed, tier, -fromFront);
             Add(_data.owned, tier + 1, 1);
+            if (resultToFront) Add(_data.deployed, tier + 1, 1);
+
             SaveAndNotify();
             return true;
         }

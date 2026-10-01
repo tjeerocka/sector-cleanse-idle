@@ -15,6 +15,11 @@ namespace SectorCleanse.Core
     /// the app is paused/closed. The menu then offers CONTINUE (restores time, wave,
     /// round money and the surviving squad) or ABANDON (banks the round money).
     ///
+    /// Waves: every <see cref="waveDuration"/> seconds. Kills pay $1 per wave number.
+    /// Every <see cref="checkpointEvery"/>th wave reached is a checkpoint: new runs
+    /// start from the highest checkpoint ever reached. Best wave / best run money
+    /// are kept as highscores.
+    ///
     /// Responsibilities are deliberately narrow:
     ///  * track and broadcast the current <see cref="GameState"/>;
     ///  * toggle the menu / gameplay / game-over scene roots;
@@ -33,6 +38,9 @@ namespace SectorCleanse.Core
     public class GameManager : MonoBehaviour
     {
         private const string BankedMoneyKey = "SectorCleanse.BankedMoney";
+        private const string CheckpointKey = "SectorCleanse.CheckpointWave";
+        private const string BestWaveKey = "SectorCleanse.BestWave";
+        private const string BestRunMoneyKey = "SectorCleanse.BestRunMoney";
 
         public static GameManager Instance { get; private set; }
 
@@ -53,8 +61,14 @@ namespace SectorCleanse.Core
         [Tooltip("Start a round immediately on Play (skips the menu). Handy while grayboxing.")]
         [SerializeField] private bool autoStartRound;
 
-        [Tooltip("Seconds per wave. Waves are a display of difficulty progress (difficulty ramps with round time).")]
-        [SerializeField, Min(1f)] private float waveDuration = 20f;
+        [Tooltip("Seconds per wave. Difficulty ramps with round time, so waves track difficulty.")]
+        [SerializeField, Min(1f)] private float waveDuration = 30f;
+
+        [Tooltip("Every Nth wave reached becomes a checkpoint that new runs start from.")]
+        [SerializeField, Min(1)] private int checkpointEvery = 5;
+
+        [Tooltip("Money per kill = this × wave number.")]
+        [SerializeField, Min(1)] private int rewardPerWave = 1;
 
         [Tooltip("Seconds between autosaves while a round is running.")]
         [SerializeField, Min(1f)] private float autosaveInterval = 3f;
@@ -80,6 +94,26 @@ namespace SectorCleanse.Core
 
         /// <summary>Current wave (1-based), derived from round time.</summary>
         public int Wave => WaveAt(RoundTime);
+
+        /// <summary>Money paid per enemy killed on the current wave.</summary>
+        public int KillReward => rewardPerWave * Wave;
+
+        /// <summary>Highest checkpoint wave reached (0 = none yet). New runs start here.</summary>
+        public int CheckpointWave { get; private set; }
+
+        public int CheckpointEvery => checkpointEvery;
+
+        /// <summary>Wave a new run starts at.</summary>
+        public int StartWave => Mathf.Max(1, CheckpointWave);
+
+        /// <summary>Highscore: highest wave ever reached.</summary>
+        public int BestWave { get; private set; }
+
+        /// <summary>Highscore: most money earned in a single run.</summary>
+        public int BestRunMoney { get; private set; }
+
+        /// <summary>True if the last finished round beat the best wave or best run money.</summary>
+        public bool LastRoundWasHighscore { get; private set; }
 
         /// <summary>Wave number for a given round time (also used to describe saved runs).</summary>
         public int WaveAt(float roundTime) => 1 + Mathf.FloorToInt(roundTime / waveDuration);
@@ -118,6 +152,9 @@ namespace SectorCleanse.Core
             Instance = this;
 
             BankedMoney = PlayerPrefs.GetInt(BankedMoneyKey, 0);
+            CheckpointWave = PlayerPrefs.GetInt(CheckpointKey, 0);
+            BestWave = PlayerPrefs.GetInt(BestWaveKey, 0);
+            BestRunMoney = PlayerPrefs.GetInt(BestRunMoneyKey, 0);
         }
 
         private void Start()
@@ -131,7 +168,9 @@ namespace SectorCleanse.Core
         {
             if (!IsPlaying) return;
 
+            int waveBefore = Wave;
             RoundTime += Time.deltaTime;
+            if (Wave != waveBefore) OnWaveReached(Wave);
 
             _autosaveTimer -= Time.unscaledDeltaTime;
             if (_autosaveTimer <= 0f) SaveRun();
@@ -183,7 +222,11 @@ namespace SectorCleanse.Core
         public void AbandonRun()
         {
             RunSaveData data = RunSave.Read();
-            if (data != null) AddBankedMoney(data.roundMoney);
+            if (data != null)
+            {
+                RecordHighscore(WaveAt(data.roundTime), data.roundMoney);
+                AddBankedMoney(data.roundMoney);
+            }
             DeleteSavedRun();
         }
 
@@ -203,7 +246,8 @@ namespace SectorCleanse.Core
                 _returnToMenuRoutine = null;
             }
 
-            RoundTime = resume?.roundTime ?? 0f;
+            // New runs start at the start of the highest checkpoint wave.
+            RoundTime = resume?.roundTime ?? (StartWave - 1) * waveDuration;
             RoundMoney = resume?.roundMoney ?? 0;
             RoundMoneyChanged?.Invoke(RoundMoney);
             _autosaveTimer = autosaveInterval;
@@ -232,6 +276,35 @@ namespace SectorCleanse.Core
             if (!hadSave) SavedRunChanged?.Invoke();
         }
 
+        /// <summary>Checkpoints every Nth wave (kept if the run later fails).</summary>
+        private void OnWaveReached(int wave)
+        {
+            if (wave % checkpointEvery != 0 || wave <= CheckpointWave) return;
+            CheckpointWave = wave;
+            PlayerPrefs.SetInt(CheckpointKey, CheckpointWave);
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>Update best wave / best run money. Returns true if either was beaten.</summary>
+        private bool RecordHighscore(int wave, int runMoney)
+        {
+            bool beaten = false;
+            if (wave > BestWave)
+            {
+                BestWave = wave;
+                PlayerPrefs.SetInt(BestWaveKey, BestWave);
+                beaten = true;
+            }
+            if (runMoney > BestRunMoney)
+            {
+                BestRunMoney = runMoney;
+                PlayerPrefs.SetInt(BestRunMoneyKey, BestRunMoney);
+                beaten = true;
+            }
+            if (beaten) PlayerPrefs.Save();
+            return beaten;
+        }
+
         private void DeleteSavedRun()
         {
             if (!RunSave.Exists) return;
@@ -249,6 +322,7 @@ namespace SectorCleanse.Core
 
             var result = new RoundResult(RoundTime, RoundMoney, Wave);
             LastRoundResult = result;
+            LastRoundWasHighscore = RecordHighscore(Wave, RoundMoney);
             AddBankedMoney(RoundMoney);
             DeleteSavedRun(); // The run is over; nothing to continue.
 
@@ -297,6 +371,16 @@ namespace SectorCleanse.Core
 
         [ContextMenu("Debug/Reset bank to $0")]
         private void DebugResetMoney() => AddBankedMoney(-BankedMoney);
+
+        [ContextMenu("Debug/Reset checkpoint and highscores")]
+        private void DebugResetProgress()
+        {
+            CheckpointWave = BestWave = BestRunMoney = 0;
+            PlayerPrefs.DeleteKey(CheckpointKey);
+            PlayerPrefs.DeleteKey(BestWaveKey);
+            PlayerPrefs.DeleteKey(BestRunMoneyKey);
+            PlayerPrefs.Save();
+        }
 #endif
 
         private void AddBankedMoney(int delta)

@@ -192,8 +192,8 @@ namespace SectorCleanse.EditorTools
                 new Vector2(0f, 470f), new Vector2(1000f, 120f));
             bankLabel.color = new Color(1f, 0.85f, 0.3f);
 
-            Text statsLabel = CreateText(canvas.transform, "Stats", "", 34,
-                new Vector2(0f, 340f), new Vector2(1040f, 140f));
+            Text statsLabel = CreateText(canvas.transform, "Stats", "", 32,
+                new Vector2(0f, 335f), new Vector2(1060f, 150f));
 
             // --- Run buttons: DEPLOY (no saved run) or CONTINUE + ABANDON ---
             Button deploy = CreateButton(canvas.transform, "DeployButton", "DEPLOY", 64,
@@ -357,7 +357,7 @@ namespace SectorCleanse.EditorTools
             rt.anchorMax = new Vector2(x, 1f);
             rt.pivot = new Vector2(x, 1f);
             rt.anchoredPosition = new Vector2(rightSide ? -40f : 40f, -40f);
-            rt.sizeDelta = new Vector2(520f, 300f);
+            rt.sizeDelta = new Vector2(560f, 420f);
             return text;
         }
 
@@ -374,7 +374,7 @@ namespace SectorCleanse.EditorTools
                 new Vector2(0f, 200f), new Vector2(1000f, 200f)).color = new Color(1f, 0.35f, 0.3f);
 
             Text summary = CreateText(canvas.transform, "Summary", "", 56,
-                new Vector2(0f, -80f), new Vector2(1000f, 300f));
+                new Vector2(0f, -110f), new Vector2(1000f, 360f));
             summary.color = new Color(1f, 0.85f, 0.3f);
 
             GameOverView view = canvas.gameObject.AddComponent<GameOverView>();

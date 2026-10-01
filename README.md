@@ -15,10 +15,11 @@ Minimalist 2D idle/incremental lane shooter (Unity, graybox prototype).
 | `Assets/Scripts/Player/SquadFormation.cs` | Draws each soldier below the green player, labelled and tinted by tier; the Weapon fires one bullet per soldier with that soldier's damage. |
 | `Assets/Scripts/Combat/Weapon.cs` | Auto-fires bullets upward. Base damage / fire rate (meta-upgrades) × per-round multipliers (buffs/debuffs). |
 | `Assets/Scripts/Combat/Bullet.cs` | Flies up, damages the first enemy it overlaps (swept check, no physics). |
-| `Assets/Scripts/Combat/Enemy.cs` | Moves down its lane showing HP. Killed → pays its starting HP as money. Reaches the bottom in the player's lane → squad loses soldiers equal to its remaining HP. |
-| `Assets/Scripts/Combat/EnemySpawner.cs` | Spawns enemies in random lanes; spawn rate and HP ramp up over the round. |
+| `Assets/Scripts/Combat/Enemy.cs` | Moves down its lane showing HP. Killed → pays $1 × wave number. Reaches the bottom in the player's lane → deals its remaining HP to the squad (weakest soldier first). |
+| `Assets/Scripts/Combat/EnemySpawner.cs` | Spawns enemies in random lanes (every 0.4 s → 0.15 s over 5 min, never stacked in a lane); HP ramps up over the round. |
 | `Assets/Scripts/UI/HudView.cs` | In-round HUD in two side columns: bank (unchanged until the round ends), round earnings, time on the left; soldiers, damage, fire rate, bullet speed on the right. |
 | `Assets/Scripts/Meta/UpgradeShop.cs` | Permanent upgrades bought with banked money (saved): Damage (+1 per bullet, $40 +$40/level), Fire Rate (+0.5 shots/s, $30 +$30/level, max 20). |
+| `Assets/Scripts/Core/GameManager.cs` (waves) | 30 s waves; every 5th wave reached is a checkpoint new runs start from; highscores (best wave, best run money). |
 | `Assets/Scripts/Core/RunSave.cs` | Saved run (time/wave, round money, surviving squad, player position). Autosaved every 3 s and when the app is paused/closed or the pause button is pressed. |
 | `Assets/Scripts/Core/NumberFormat.cs` | Compact big-number display (12.3K, 4.5M, 1.23e15). |
 | `Assets/Scripts/UI/BarracksView.cs` | Barracks screen: recruit T0, and per tier DEPLOY / RETURN / MERGE. |
@@ -39,7 +40,7 @@ Then press **Play → DEPLOY** and move by holding A/D or the arrow keys, or by 
 The weapon fires automatically; line up under enemies to shoot them, and dodge (or kill) anything about to
 reach your lane. Tuning values live on the **Player** (Weapon, PlayerSquad) and **EnemySpawner** components.
 Debug helpers (right-click the component header in the Inspector): **GameManager → Debug/Add $100 to bank**,
-**UpgradeShop → Debug/Reset all upgrades**, **Barracks → Debug/Add 5 T0 to reserve**, **Barracks → Debug/Reset barracks**.
+**UpgradeShop → Debug/Reset all upgrades**, **Barracks → Debug/Add 5 T0 to reserve**, **Barracks → Debug/Reset barracks**, **GameManager → Debug/Reset checkpoint and highscores**.
 
 Saved runs: closing the app / stopping Play mode / pressing the in-game **II** button saves the run. The menu
 then shows **CONTINUE** (resume at the same wave with the surviving squad) and **ABANDON RUN** (banks its money).

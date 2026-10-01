@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using SectorCleanse.Core;
 using SectorCleanse.Player;
 using UnityEngine;
@@ -7,6 +8,8 @@ namespace SectorCleanse.Combat
     /// <summary>
     /// Spawns enemies at the top of random lanes while a round is running.
     /// Difficulty ramps over the round: enemies spawn more often and get more HP.
+    /// A lane only gets a new enemy once the previous one has moved clear of the
+    /// spawn point, so dense spawning never stacks enemies on top of each other.
     ///
     /// Graybox: enemies are built in code from a sprite, so no prefabs are needed.
     /// </summary>
@@ -20,13 +23,13 @@ namespace SectorCleanse.Combat
 
         [Header("Spawn rate")]
         [Tooltip("Seconds between spawns at the start of a round.")]
-        [SerializeField, Min(0.05f)] private float startInterval = 1.6f;
+        [SerializeField, Min(0.05f)] private float startInterval = 0.4f;
 
         [Tooltip("Fastest spawn interval, reached after Ramp Duration seconds.")]
-        [SerializeField, Min(0.05f)] private float minInterval = 0.5f;
+        [SerializeField, Min(0.05f)] private float minInterval = 0.15f;
 
         [Tooltip("Seconds until the spawn interval reaches its minimum.")]
-        [SerializeField, Min(1f)] private float rampDuration = 120f;
+        [SerializeField, Min(1f)] private float rampDuration = 300f;
 
         [Tooltip("Delay before the first enemy of a round.")]
         [SerializeField, Min(0f)] private float firstSpawnDelay = 1f;
@@ -45,8 +48,13 @@ namespace SectorCleanse.Combat
         [SerializeField] private Sprite enemySprite;
         [SerializeField] private Color enemyColor = new Color(0.9f, 0.25f, 0.25f);
 
+        [Tooltip("Extra empty space (world units) between two enemies in the same lane.")]
+        [SerializeField, Min(0f)] private float laneGap = 0.15f;
+
         private Transform _container;
         private float _timer;
+        private readonly List<float> _laneFreeAt = new List<float>();
+        private readonly List<int> _freeLanes = new List<int>();
 
         private LaneSystem Lanes => laneSystem ? laneSystem : LaneSystem.Instance;
 
@@ -84,7 +92,11 @@ namespace SectorCleanse.Combat
             _timer -= Time.deltaTime;
             if (_timer > 0f) return;
 
-            Spawn(Random.Range(0, Lanes.LaneCount), CurrentHp());
+            int lane = PickFreeLane();
+            if (lane < 0) return; // Every lane still has an enemy at the spawn point; try next frame.
+
+            Spawn(lane, CurrentHp());
+            _laneFreeAt[lane] = Time.time + (enemySize + laneGap) / enemySpeed;
             _timer = CurrentInterval();
         }
 
@@ -102,9 +114,22 @@ namespace SectorCleanse.Combat
         // Internals
         // ------------------------------------------------------------------
 
+        /// <summary>Random lane whose previous enemy has moved clear of the spawn point, or -1.</summary>
+        private int PickFreeLane()
+        {
+            while (_laneFreeAt.Count < Lanes.LaneCount) _laneFreeAt.Add(0f);
+
+            _freeLanes.Clear();
+            for (int i = 0; i < Lanes.LaneCount; i++)
+                if (Time.time >= _laneFreeAt[i]) _freeLanes.Add(i);
+
+            return _freeLanes.Count == 0 ? -1 : _freeLanes[Random.Range(0, _freeLanes.Count)];
+        }
+
         private void ResetForRound()
         {
             _timer = firstSpawnDelay;
+            _laneFreeAt.Clear();
             for (int i = _container.childCount - 1; i >= 0; i--)
             {
                 var enemy = _container.GetChild(i).GetComponent<Enemy>();

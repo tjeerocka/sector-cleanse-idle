@@ -8,7 +8,7 @@ namespace SectorCleanse.Combat
     /// <summary>
     /// A graybox enemy: moves straight down its lane and shows its remaining HP.
     ///
-    /// * Killed by bullets → pays money equal to its starting HP.
+    /// * Killed by bullets → pays $1 per wave number ($1 on wave 1, $2 on wave 2…).
     /// * Reaches the player line → if the player is standing in this lane, the squad
     ///   loses soldiers equal to the enemy's remaining HP. Either way it despawns.
     ///
@@ -87,9 +87,7 @@ namespace SectorCleanse.Combat
 
             if (Hp <= 0)
             {
-                // Reward = starting HP (clamped so huge HP can't overflow the int bank).
-                int reward = (int)System.Math.Min(MaxHp, int.MaxValue / 4);
-                if (GameManager.Instance) GameManager.Instance.AddRoundMoney(reward);
+                if (GameManager.Instance) GameManager.Instance.AddRoundMoney(GameManager.Instance.KillReward);
                 Destroy(gameObject);
             }
         }

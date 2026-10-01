@@ -9,7 +9,8 @@ namespace SectorCleanse.UI
 {
     /// <summary>
     /// Start-menu info and run buttons:
-    ///  * bank total and the stats of the front line you'll deploy with;
+    ///  * bank total, highscores, the wave the next run starts at (checkpoint) and
+    ///    the stats of the front line you'll deploy with;
     ///  * DEPLOY when no run is saved, otherwise CONTINUE + ABANDON with the saved
     ///    run's wave and money.
     /// Refreshes after shop purchases, barracks changes and save changes.
@@ -77,19 +78,22 @@ namespace SectorCleanse.UI
 
             if (!statsLabel) return;
 
+            GameManager gm = GameManager.Instance;
             int deployed = barracks ? barracks.DeployedTotal : 0;
-            string volley = weapon && barracks
-                ? NumberFormat.Short(weapon.EstimateVolleyDamage(barracks.GetDeployedTiers()))
+            string playerDmg = weapon ? NumberFormat.Short(weapon.PlayerDamage) : "-";
+            string soldierDmg = weapon && barracks
+                ? NumberFormat.Short(weapon.EstimateSoldierDamage(barracks.GetDeployedTiers()))
                 : "-";
             string rate = weapon ? $"{weapon.FireRate:0.#}/s" : "-";
 
-            string text = $"FRONT LINE {deployed}/{Barracks.FrontLineCap}   VOLLEY DMG {volley}   FIRE RATE {rate}";
-            if (hasRun)
-            {
-                int wave = GameManager.Instance ? GameManager.Instance.WaveAt(saved.roundTime) : 1;
-                text = $"RUN IN PROGRESS: WAVE {wave}, +${saved.roundMoney}, {saved.soldiers.Count} SOLDIERS LEFT\n" + text;
-            }
-            statsLabel.text = text;
+            string highscore = gm ? $"HIGHSCORE: WAVE {gm.BestWave}   BEST RUN ${gm.BestRunMoney}" : "";
+            string runLine = hasRun
+                ? $"RUN IN PROGRESS: WAVE {(gm ? gm.WaveAt(saved.roundTime) : 1)}, +${saved.roundMoney}, {saved.soldiers.Count} SOLDIERS LEFT"
+                : $"NEXT RUN STARTS AT WAVE {(gm ? gm.StartWave : 1)} (CHECKPOINT EVERY {(gm ? gm.CheckpointEvery : 5)} WAVES)";
+
+            statsLabel.text =
+                $"{highscore}\n{runLine}\n" +
+                $"FRONT LINE {deployed}/{Barracks.FrontLineCap}   DMG {playerDmg}   SOLDIER DMG {soldierDmg}   FIRE RATE {rate}";
         }
     }
 }
