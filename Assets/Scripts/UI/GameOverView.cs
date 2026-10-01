@@ -1,4 +1,5 @@
 using SectorCleanse.Core;
+using SectorCleanse.Meta;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -13,6 +14,12 @@ namespace SectorCleanse.UI
     public class GameOverView : MonoBehaviour
     {
         [SerializeField] private Text summaryLabel;
+        [SerializeField] private PlayerProfile profile;
+
+        private void Awake()
+        {
+            if (!profile) profile = FindAnyObjectByType<PlayerProfile>();
+        }
 
         private void OnEnable()
         {
@@ -26,6 +33,13 @@ namespace SectorCleanse.UI
                 $"+${result.MoneyEarned} EARNED\n" +
                 $"REACHED WAVE {result.Wave} ({Mathf.FloorToInt(result.SurvivalTime)}s)\n" +
                 $"BANK ${gm.BankedMoney}";
+
+            // Leaderboard placement (may arrive later for an online board).
+            string baseText = summaryLabel.text;
+            if (profile) profile.GetOwnRank(rank =>
+            {
+                if (rank > 0 && summaryLabel) summaryLabel.text = baseText + $"\nLEADERBOARD #{rank}";
+            });
         }
     }
 }

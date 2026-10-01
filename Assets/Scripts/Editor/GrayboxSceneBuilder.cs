@@ -23,7 +23,8 @@ namespace SectorCleanse.EditorTools
     ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips), Player (movement,
     ///    squad + soldier formation, weapon), EnemySpawner and HUD;
     ///  * MenuRoot canvas: bank total, front-line stats, DEPLOY / CONTINUE / ABANDON,
-    ///    the Barracks screen and the upgrade shop (Barracks + UpgradeShop live on the
+    ///    the Barracks screen, the upgrade shop, the Highscores screen and the
+    ///    first-launch name screen (Barracks, UpgradeShop and PlayerProfile live on the
     ///    GameManager object);
     ///  * HUD with a pause button (suspends and saves the run);
     ///  * GameOverRoot overlay with the round summary;
@@ -107,11 +108,12 @@ namespace SectorCleanse.EditorTools
             UpgradeShop shop = gameManager.gameObject.AddComponent<UpgradeShop>();
             SetRef(shop, "weapon", weapon);
             Barracks barracks = gameManager.gameObject.AddComponent<Barracks>();
+            PlayerProfile profile = gameManager.gameObject.AddComponent<PlayerProfile>();
             SetRef(squad, "barracks", barracks);
 
             // --- UI ---------------------------------------------------------------
-            GameObject menuRoot = CreateMenu(gameManager, weapon, shop, barracks);
-            GameObject gameOverRoot = CreateGameOverOverlay();
+            GameObject menuRoot = CreateMenu(gameManager, weapon, shop, barracks, profile);
+            GameObject gameOverRoot = CreateGameOverOverlay(profile);
             CreateEventSystem();
 
             // --- Wiring -----------------------------------------------------------
@@ -181,19 +183,19 @@ namespace SectorCleanse.EditorTools
         }
 
         private static GameObject CreateMenu(GameManager gameManager, Weapon weapon, UpgradeShop shop,
-            Barracks barracks)
+            Barracks barracks, PlayerProfile profile)
         {
             Canvas canvas = CreateCanvas("MenuRoot", 0);
 
             CreateText(canvas.transform, "Title", "SECTOR CLEANSE\nIDLE", 90,
-                new Vector2(0f, 650f), new Vector2(1000f, 300f));
+                new Vector2(0f, 700f), new Vector2(1000f, 260f));
 
             Text bankLabel = CreateText(canvas.transform, "Bank", "BANK $0", 72,
-                new Vector2(0f, 470f), new Vector2(1000f, 120f));
+                new Vector2(0f, 530f), new Vector2(1000f, 110f));
             bankLabel.color = new Color(1f, 0.85f, 0.3f);
 
             Text statsLabel = CreateText(canvas.transform, "Stats", "", 32,
-                new Vector2(0f, 335f), new Vector2(1060f, 150f));
+                new Vector2(0f, 365f), new Vector2(1060f, 200f));
 
             // --- Run buttons: DEPLOY (no saved run) or CONTINUE + ABANDON ---
             Button deploy = CreateButton(canvas.transform, "DeployButton", "DEPLOY", 64,
@@ -220,8 +222,19 @@ namespace SectorCleanse.EditorTools
             CreateShopRow(canvas.transform, shop, UpgradeShop.DamageId, -320f, new Color(0.85f, 0.3f, 0.3f));
             CreateShopRow(canvas.transform, shop, UpgradeShop.FireRateId, -480f, new Color(0.3f, 0.55f, 0.95f));
 
-            // Created after everything else in the menu so the open overlay draws (and blocks clicks) on top.
+            // --- Highscores ---
+            GameObject leaderboardPanel = CreateLeaderboardPanel(canvas.transform, profile);
+            Button openLeaderboard = CreateButton(canvas.transform, "HighscoresButton", "HIGHSCORES", 52,
+                new Vector2(0f, -640f), new Vector2(820f, 130f), new Color(0.85f, 0.7f, 0.15f));
+            UnityEventTools.AddBoolPersistentListener(openLeaderboard.onClick, leaderboardPanel.SetActive, true);
+
+            // --- Name entry (blocks everything until a name is chosen) ---
+            NameEntryView nameEntry = CreateNameEntryPanel(canvas.transform, profile);
+
+            // Overlays are moved last so, when open, they draw (and block clicks) on top of the menu.
             barracksPanel.transform.SetAsLastSibling();
+            leaderboardPanel.transform.SetAsLastSibling();
+            nameEntry.transform.SetAsLastSibling();
 
             MenuView menuView = canvas.gameObject.AddComponent<MenuView>();
             SetRef(menuView, "bankLabel", bankLabel);
@@ -232,6 +245,8 @@ namespace SectorCleanse.EditorTools
             SetRef(menuView, "weapon", weapon);
             SetRef(menuView, "shop", shop);
             SetRef(menuView, "barracks", barracks);
+            SetRef(menuView, "profile", profile);
+            SetRef(menuView, "nameEntry", nameEntry);
 
             return canvas.gameObject;
         }
@@ -253,12 +268,132 @@ namespace SectorCleanse.EditorTools
             Button recruit = CreateButton(panel.transform, "RecruitButton", "", 44,
                 new Vector2(0f, 620f), new Vector2(820f, 130f), new Color(0.95f, 0.55f, 0.15f));
 
-            // Scroll view with a vertical list of tier rows.
-            var scroll = new GameObject("TierList", typeof(RectTransform), typeof(Image), typeof(ScrollRect));
-            scroll.transform.SetParent(panel.transform, false);
+            RectTransform contentRt = CreateScrollList(panel.transform, "TierList",
+                new Vector2(0f, -70f), new Vector2(1040f, 1220f));
+
+            Button close = CreateButton(panel.transform, "CloseButton", "CLOSE", 48,
+                new Vector2(0f, -820f), new Vector2(400f, 120f), new Color(0.4f, 0.4f, 0.45f));
+            UnityEventTools.AddBoolPersistentListener(close.onClick, panel.SetActive, false);
+
+            BarracksView view = panel.AddComponent<BarracksView>();
+            SetRef(view, "barracks", barracks);
+            SetRef(view, "headerLabel", header);
+            SetRef(view, "infoLabel", info);
+            SetRef(view, "recruitButton", recruit);
+            SetRef(view, "recruitLabel", recruit.GetComponentInChildren<Text>());
+            SetRef(view, "rowContainer", contentRt);
+
+            panel.SetActive(false);
+            return panel;
+        }
+
+        /// <summary>Full-screen highscores overlay: ranked list, your rank, close button.</summary>
+        private static GameObject CreateLeaderboardPanel(Transform parent, PlayerProfile profile)
+        {
+            var panel = new GameObject("HighscoresPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(parent, false);
+            Stretch((RectTransform)panel.transform);
+            panel.GetComponent<Image>().color = new Color(0.08f, 0.09f, 0.12f, 0.97f);
+
+            CreateText(panel.transform, "Header", "HIGHSCORES", 64,
+                new Vector2(0f, 820f), new Vector2(1040f, 110f)).color = new Color(1f, 0.85f, 0.3f);
+            CreateText(panel.transform, "Subtitle", "RANKED BY HIGHEST WAVE", 30,
+                new Vector2(0f, 740f), new Vector2(1040f, 60f)).color = new Color(0.8f, 0.8f, 0.85f);
+
+            Text yourRank = CreateText(panel.transform, "YourRank", "", 44,
+                new Vector2(0f, 650f), new Vector2(1040f, 90f));
+
+            RectTransform content = CreateScrollList(panel.transform, "Ranking",
+                new Vector2(0f, -60f), new Vector2(1040f, 1260f));
+
+            Button close = CreateButton(panel.transform, "CloseButton", "CLOSE", 48,
+                new Vector2(0f, -820f), new Vector2(400f, 120f), new Color(0.4f, 0.4f, 0.45f));
+            UnityEventTools.AddBoolPersistentListener(close.onClick, panel.SetActive, false);
+
+            LeaderboardView view = panel.AddComponent<LeaderboardView>();
+            SetRef(view, "profile", profile);
+            SetRef(view, "rowContainer", content);
+            SetRef(view, "yourRankLabel", yourRank);
+
+            panel.SetActive(false);
+            return panel;
+        }
+
+        /// <summary>Full-screen "choose your name" overlay (active by default; hides itself once a name exists).</summary>
+        private static NameEntryView CreateNameEntryPanel(Transform parent, PlayerProfile profile)
+        {
+            var panel = new GameObject("NameEntryPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(parent, false);
+            Stretch((RectTransform)panel.transform);
+            panel.GetComponent<Image>().color = new Color(0.06f, 0.07f, 0.1f, 1f);
+
+            CreateText(panel.transform, "Title", "WELCOME, COMMANDER", 72,
+                new Vector2(0f, 420f), new Vector2(1040f, 120f)).color = new Color(1f, 0.85f, 0.3f);
+            CreateText(panel.transform, "Rules",
+                $"CHOOSE YOUR PLAYER NAME\n{PlayerProfile.MinLength}-{PlayerProfile.MaxLength} CHARACTERS, LETTERS A-Z AND DIGITS 0-9",
+                34, new Vector2(0f, 290f), new Vector2(1040f, 120f));
+
+            InputField input = CreateInputField(panel.transform, new Vector2(0f, 130f), new Vector2(760f, 130f));
+
+            Text error = CreateText(panel.transform, "Error", "", 36,
+                new Vector2(0f, 10f), new Vector2(1040f, 80f));
+            error.color = new Color(1f, 0.4f, 0.35f);
+
+            Button confirm = CreateButton(panel.transform, "ConfirmButton", "CONFIRM", 56,
+                new Vector2(0f, -130f), new Vector2(500f, 140f), ButtonColor);
+
+            NameEntryView view = panel.AddComponent<NameEntryView>();
+            SetRef(view, "profile", profile);
+            SetRef(view, "input", input);
+            SetRef(view, "confirmButton", confirm);
+            SetRef(view, "errorLabel", error);
+            return view;
+        }
+
+        private static InputField CreateInputField(Transform parent, Vector2 anchoredPosition, Vector2 size)
+        {
+            var go = new GameObject("NameInput", typeof(RectTransform), typeof(Image), typeof(InputField));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchoredPosition = anchoredPosition;
+            rt.sizeDelta = size;
+
+            var image = go.GetComponent<Image>();
+            image.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/InputFieldBackground.psd");
+            image.type = Image.Type.Sliced;
+
+            Text text = CreateText(go.transform, "Text", "", 60, Vector2.zero, Vector2.zero);
+            Text placeholder = CreateText(go.transform, "Placeholder", "NAME", 60, Vector2.zero, Vector2.zero);
+            foreach (Text t in new[] { text, placeholder })
+            {
+                var trt = (RectTransform)t.transform;
+                Stretch(trt);
+                trt.offsetMin = new Vector2(24f, 8f);
+                trt.offsetMax = new Vector2(-24f, -8f);
+                t.alignment = TextAnchor.MiddleCenter;
+                t.supportRichText = false;
+            }
+            text.color = new Color(0.1f, 0.1f, 0.12f);
+            placeholder.color = new Color(0.55f, 0.55f, 0.6f);
+            placeholder.fontStyle = FontStyle.Italic;
+
+            var input = go.GetComponent<InputField>();
+            input.textComponent = text;
+            input.placeholder = placeholder;
+            input.characterLimit = PlayerProfile.MaxLength;
+            input.contentType = InputField.ContentType.Alphanumeric;
+            input.lineType = InputField.LineType.SingleLine;
+            return input;
+        }
+
+        /// <summary>Scroll view with a vertical, auto-sizing list. Returns the content to add rows to.</summary>
+        private static RectTransform CreateScrollList(Transform parent, string name, Vector2 anchoredPosition, Vector2 size)
+        {
+            var scroll = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(ScrollRect));
+            scroll.transform.SetParent(parent, false);
             var scrollRt = (RectTransform)scroll.transform;
-            scrollRt.anchoredPosition = new Vector2(0f, -70f);
-            scrollRt.sizeDelta = new Vector2(1040f, 1220f);
+            scrollRt.anchoredPosition = anchoredPosition;
+            scrollRt.sizeDelta = size;
             scroll.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.03f);
 
             var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(RectMask2D));
@@ -290,20 +425,7 @@ namespace SectorCleanse.EditorTools
             scrollRect.horizontal = false;
             scrollRect.movementType = ScrollRect.MovementType.Clamped;
 
-            Button close = CreateButton(panel.transform, "CloseButton", "CLOSE", 48,
-                new Vector2(0f, -820f), new Vector2(400f, 120f), new Color(0.4f, 0.4f, 0.45f));
-            UnityEventTools.AddBoolPersistentListener(close.onClick, panel.SetActive, false);
-
-            BarracksView view = panel.AddComponent<BarracksView>();
-            SetRef(view, "barracks", barracks);
-            SetRef(view, "headerLabel", header);
-            SetRef(view, "infoLabel", info);
-            SetRef(view, "recruitButton", recruit);
-            SetRef(view, "recruitLabel", recruit.GetComponentInChildren<Text>());
-            SetRef(view, "rowContainer", contentRt);
-
-            panel.SetActive(false);
-            return panel;
+            return contentRt;
         }
 
         private static void CreateShopRow(Transform parent, UpgradeShop shop, string upgradeId, float y, Color color)
@@ -361,7 +483,7 @@ namespace SectorCleanse.EditorTools
             return text;
         }
 
-        private static GameObject CreateGameOverOverlay()
+        private static GameObject CreateGameOverOverlay(PlayerProfile profile)
         {
             Canvas canvas = CreateCanvas("GameOverRoot", 10);
 
@@ -379,6 +501,7 @@ namespace SectorCleanse.EditorTools
 
             GameOverView view = canvas.gameObject.AddComponent<GameOverView>();
             SetRef(view, "summaryLabel", summary);
+            SetRef(view, "profile", profile);
 
             return canvas.gameObject;
         }

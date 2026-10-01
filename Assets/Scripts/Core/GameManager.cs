@@ -134,6 +134,9 @@ namespace SectorCleanse.Core
         /// <summary>Raised when a saved run appears or disappears (menu swaps DEPLOY / CONTINUE).</summary>
         public event Action SavedRunChanged;
 
+        /// <summary>Raised with (wave reached, run money) whenever a run finishes or is abandoned (leaderboard submission).</summary>
+        public event Action<int, int> RunScored;
+
         private Coroutine _returnToMenuRoutine;
         private float _autosaveTimer;
 
@@ -288,6 +291,8 @@ namespace SectorCleanse.Core
         /// <summary>Update best wave / best run money. Returns true if either was beaten.</summary>
         private bool RecordHighscore(int wave, int runMoney)
         {
+            RunScored?.Invoke(wave, runMoney);
+
             bool beaten = false;
             if (wave > BestWave)
             {

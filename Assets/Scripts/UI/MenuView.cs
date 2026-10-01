@@ -29,8 +29,11 @@ namespace SectorCleanse.UI
         [SerializeField] private Weapon weapon;
         [SerializeField] private UpgradeShop shop;
         [SerializeField] private Barracks barracks;
+        [SerializeField] private PlayerProfile profile;
+        [SerializeField] private NameEntryView nameEntry;
 
         private int _shownBank = -1;
+        private int _rank;
 
         private void Awake()
         {
@@ -38,6 +41,7 @@ namespace SectorCleanse.UI
             if (!weapon) weapon = FindAnyObjectByType<Weapon>(FindObjectsInactive.Include);
             if (!shop) shop = FindAnyObjectByType<UpgradeShop>();
             if (!barracks) barracks = FindAnyObjectByType<Barracks>();
+            if (!profile) profile = FindAnyObjectByType<PlayerProfile>();
         }
 
         private void OnEnable()
@@ -45,8 +49,13 @@ namespace SectorCleanse.UI
             if (shop) shop.UpgradesChanged += Refresh;
             if (barracks) barracks.Changed += Refresh;
             if (GameManager.Instance) GameManager.Instance.SavedRunChanged += Refresh;
+            if (profile)
+            {
+                profile.NameChanged += OnNameChanged;
+                profile.ScoresChanged += RequestRank;
+            }
             _shownBank = -1;
-            Refresh();
+            OnNameChanged();
         }
 
         private void OnDisable()
@@ -54,6 +63,29 @@ namespace SectorCleanse.UI
             if (shop) shop.UpgradesChanged -= Refresh;
             if (barracks) barracks.Changed -= Refresh;
             if (GameManager.Instance) GameManager.Instance.SavedRunChanged -= Refresh;
+            if (profile)
+            {
+                profile.NameChanged -= OnNameChanged;
+                profile.ScoresChanged -= RequestRank;
+            }
+        }
+
+        private void OnNameChanged()
+        {
+            if (nameEntry) nameEntry.UpdateVisibility();
+            RequestRank();
+        }
+
+        /// <summary>Ask the leaderboard for our rank (may answer later when online), then redraw.</summary>
+        private void RequestRank()
+        {
+            _rank = 0;
+            Refresh();
+            if (profile) profile.GetOwnRank(rank =>
+            {
+                _rank = rank;
+                Refresh();
+            });
         }
 
         private void Update()
@@ -86,7 +118,10 @@ namespace SectorCleanse.UI
                 : "-";
             string rate = weapon ? $"{weapon.FireRate:0.#}/s" : "-";
 
-            string highscore = gm ? $"HIGHSCORE: WAVE {gm.BestWave}   BEST RUN ${gm.BestRunMoney}" : "";
+            string player = profile && profile.HasName
+                ? $"PLAYER {profile.PlayerName}   RANK {(_rank > 0 ? "#" + _rank : "-")}   "
+                : "";
+            string highscore = gm ? $"{player}BEST WAVE {gm.BestWave}   BEST RUN ${gm.BestRunMoney}" : player;
             string runLine = hasRun
                 ? $"RUN IN PROGRESS: WAVE {(gm ? gm.WaveAt(saved.roundTime) : 1)}, +${saved.roundMoney}, {saved.soldiers.Count} SOLDIERS LEFT"
                 : $"NEXT RUN STARTS AT WAVE {(gm ? gm.StartWave : 1)} (CHECKPOINT EVERY {(gm ? gm.CheckpointEvery : 5)} WAVES)";

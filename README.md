@@ -22,6 +22,9 @@ Minimalist 2D idle/incremental lane shooter (Unity, graybox prototype).
 | `Assets/Scripts/Core/GameManager.cs` (waves) | 30 s waves; every 5th wave reached is a checkpoint new runs start from; highscores (best wave, best run money). |
 | `Assets/Scripts/Core/RunSave.cs` | Saved run (time/wave, round money, surviving squad, player position). Autosaved every 3 s and when the app is paused/closed or the pause button is pressed. |
 | `Assets/Scripts/Core/NumberFormat.cs` | Compact big-number display (12.3K, 4.5M, 1.23e15). |
+| `Assets/Scripts/Meta/PlayerProfile.cs` | Player name (required on first launch; 3–12 letters/digits, unique case-insensitively) and leaderboard submission of every finished/abandoned run. |
+| `Assets/Scripts/Meta/Leaderboard.cs` | `ILeaderboardService` (callback-based, swappable for an online backend) + `LocalLeaderboardService` (device-local, PlayerPrefs). Ranked by highest wave, then run money. |
+| `Assets/Scripts/UI/NameEntryView.cs` / `LeaderboardView.cs` | Name screen and the HIGHSCORES screen (your row highlighted, your rank). |
 | `Assets/Scripts/UI/BarracksView.cs` | Barracks screen: recruit T0, and per tier DEPLOY / RETURN / MERGE. |
 | `Assets/Scripts/UI/UpgradeButtonView.cs` | Reusable shop button: name, owned level, price; greys out when unaffordable. |
 | `Assets/Scripts/UI/MenuView.cs` | Start menu: bank total and the stats you deploy with. |
@@ -40,7 +43,8 @@ Then press **Play → DEPLOY** and move by holding A/D or the arrow keys, or by 
 The weapon fires automatically; line up under enemies to shoot them, and dodge (or kill) anything about to
 reach your lane. Tuning values live on the **Player** (Weapon, PlayerSquad) and **EnemySpawner** components.
 Debug helpers (right-click the component header in the Inspector): **GameManager → Debug/Add $100 to bank**,
-**UpgradeShop → Debug/Reset all upgrades**, **Barracks → Debug/Add 5 T0 to reserve**, **Barracks → Debug/Reset barracks**, **GameManager → Debug/Reset checkpoint and highscores**.
+**UpgradeShop → Debug/Reset all upgrades**, **Barracks → Debug/Add 5 T0 to reserve**, **Barracks → Debug/Reset barracks**, **GameManager → Debug/Reset checkpoint and highscores**,
+**PlayerProfile → Debug/Add 8 sample rivals to leaderboard**, **Debug/Forget player name**, **Debug/Clear leaderboard**.
 
 Saved runs: closing the app / stopping Play mode / pressing the in-game **II** button saves the run. The menu
 then shows **CONTINUE** (resume at the same wave with the surviving squad) and **ABANDON RUN** (banks its money).
