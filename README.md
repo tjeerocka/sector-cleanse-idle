@@ -14,7 +14,7 @@ Minimalist 2D idle/incremental lane shooter (Unity, graybox prototype).
 | `Assets/Scripts/Player/PlayerSquad.cs` | The run's squad: player (commander) + deployed soldiers, each with HP = 5^tier. Breach damage hits the weakest soldier first and overflows; the round ends when the player falls. |
 | `Assets/Scripts/Player/SquadFormation.cs` | Draws each soldier below the green player, labelled and tinted by tier; the Weapon fires one bullet per soldier with that soldier's damage. |
 | `Assets/Scripts/Combat/Weapon.cs` | Auto-fires bullets upward. Base damage / fire rate (meta-upgrades) × buff/debuff multipliers × the manual boost. Bullets fired while holding FIRE are cyan and tagged "manual". |
-| `Assets/Scripts/Combat/ManualFire.cs` | Hold FIRE (on-screen button, Space in the editor): x2 fire rate, x2 damage, x2 money per kill, and the only way to hurt elites. Builds heat; overheating jams the boost for 2 s. |
+| `Assets/Scripts/Combat/ManualFire.cs` | Hold FIRE (on-screen button, Space in the editor): x2 fire rate, x2 damage, x2 money per kill, and the only way to hurt elites. Builds heat; the button warns (HOT!) above 80%, and overheating jams the gun: the whole squad stops firing for 1.5 s. |
 | `Assets/Scripts/Combat/WaveDirector.cs` | Wave = 30 s of enemies, then an ELITE (boss on checkpoint waves). Kill it in time (manual fire only) → buff drop to catch + next wave. Too slow → debuff, and it marches down its lane (dodge it); if it breaks through, the wave repeats. |
 | `Assets/Scripts/Combat/Elite.cs` | The elite: immune to auto-fire, countdown, march, HP = ~6 s of your boosted firepower (boss: 10 s). Pays 10x (boss 25x) the kill reward. |
 | `Assets/Scripts/Combat/RunEffects.cs` | Buffs (x2 Damage, x2 Fire Rate, Bounty, Shield, Reinforcement) and debuffs (Lowered Fire Rate, Jammed, Swarm, Compromised Position, Sabotage). Timed effects are saved with the run. |
@@ -48,7 +48,7 @@ it to the build settings. Re-running it rebuilds the scene from scratch.
 Then press **Play → DEPLOY** and move by holding A/D or the arrow keys, or by dragging with the mouse.
 The weapon fires automatically; line up under enemies to shoot them, and dodge (or kill) anything about to
 reach your lane. Hold **FIRE** (bottom right, or **Space**) to shoot twice as fast and hard for double money —
-and to hurt the elite that ends every wave. Watch the heat bar: overheating jams the boost for 2 s. Tuning values live on the **Player** (Weapon, PlayerSquad) and **EnemySpawner** components.
+and to hurt the elite that ends every wave. Watch the heat bar: when it flashes (HOT!) let go — overheating jams the gun and the whole squad stops firing for 1.5 s. Tuning values live on the **Player** (Weapon, PlayerSquad) and **EnemySpawner** components.
 Debug helpers (right-click the component header in the Inspector): **GameManager → Debug/Add $100 to bank**,
 **UpgradeShop → Debug/Reset all upgrades**, **Barracks → Debug/Add 5 T0 to reserve**, **Barracks → Debug/Reset barracks**, **GameManager → Debug/Reset checkpoint and highscores**,
 **PlayerProfile → Debug/Add 8 sample rivals to leaderboard**, **Debug/Forget player name**, **Debug/Clear leaderboard**.

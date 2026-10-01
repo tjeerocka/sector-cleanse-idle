@@ -15,9 +15,10 @@ namespace SectorCleanse.Combat
     ///  * kills made by boosted bullets pay × <see cref="MoneyBoost"/>;
     ///  * only boosted bullets can hurt elites.
     ///
-    /// Holding builds heat. At full heat the gun jams for <see cref="jamDuration"/>
-    /// seconds (auto-fire keeps going, the boost doesn't). Releasing cools it down,
-    /// so short bursts beat holding the button forever.
+    /// Holding builds heat. Above <see cref="hotThreshold"/> the button warns (HOT!);
+    /// at full heat the gun jams for <see cref="jamDuration"/> seconds and the whole
+    /// squad stops firing (auto-fire too). Releasing cools it down, so short bursts
+    /// beat holding the button forever.
     /// </summary>
     [DisallowMultipleComponent]
     public class ManualFire : MonoBehaviour
@@ -32,8 +33,11 @@ namespace SectorCleanse.Combat
         [Tooltip("Heat lost per second while not firing.")]
         [SerializeField, Min(0.01f)] private float coolPerSecond = 0.4f;
 
-        [Tooltip("Seconds the boost is unavailable after overheating.")]
-        [SerializeField, Min(0f)] private float jamDuration = 2f;
+        [Tooltip("Seconds the whole squad can't fire after overheating.")]
+        [SerializeField, Min(0f)] private float jamDuration = 1.5f;
+
+        [Tooltip("Heat (0..1) above which the FIRE button warns that a jam is close.")]
+        [SerializeField, Range(0f, 1f)] private float hotThreshold = 0.8f;
 
         /// <summary>The player wants to fire (button or key held).</summary>
         public bool IsHeld => _buttonHeld || ReadKey();
@@ -45,6 +49,9 @@ namespace SectorCleanse.Combat
         public float Heat { get; private set; }
 
         public bool IsJammed => _jamTimer > 0f;
+
+        /// <summary>Close to jamming: let go soon.</summary>
+        public bool IsHot => !IsJammed && Heat >= hotThreshold;
 
         /// <summary>Seconds of jam left (0 when not jammed).</summary>
         public float JamRemaining => Mathf.Max(0f, _jamTimer);

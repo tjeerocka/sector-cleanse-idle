@@ -145,6 +145,7 @@ namespace SectorCleanse.Combat
         {
             if (GameManager.Instance && !GameManager.Instance.IsPlaying) return;
             if (Suppressed) return;
+            if (_manual && _manual.IsJammed) return; // Overheated: nobody fires until it clears.
 
             // Never wait longer than the current rate allows (pressing FIRE takes effect at once).
             _cooldown = Mathf.Min(_cooldown - Time.deltaTime, 1f / FireRate);
