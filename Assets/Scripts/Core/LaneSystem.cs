@@ -36,6 +36,12 @@ namespace SectorCleanse.Core
         public float PlayerLineWorldY => transform.position.y + playerLineY;
         public float SpawnLineWorldY => transform.position.y + spawnLineY;
 
+        /// <summary>World X of the left edge of the leftmost lane.</summary>
+        public float LeftEdgeX => transform.position.x - laneCount * laneSpacing * 0.5f;
+
+        /// <summary>World X of the right edge of the rightmost lane.</summary>
+        public float RightEdgeX => transform.position.x + laneCount * laneSpacing * 0.5f;
+
         private void Awake()
         {
             if (Instance != null && Instance != this)
@@ -75,7 +81,7 @@ namespace SectorCleanse.Core
         public Vector3 GetSpawnPosition(int lane) =>
             new Vector3(GetLaneX(lane), SpawnLineWorldY, transform.position.z);
 
-        /// <summary>Closest lane to a world X coordinate (used for tap-to-move).</summary>
+        /// <summary>Lane containing (or closest to) a world X coordinate.</summary>
         public int GetNearestLane(float worldX)
         {
             float laneFloat = (worldX - transform.position.x) / laneSpacing + (laneCount - 1) * 0.5f;
