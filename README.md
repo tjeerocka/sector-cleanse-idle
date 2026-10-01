@@ -11,19 +11,17 @@ Minimalist 2D idle/incremental lane shooter (Unity, graybox prototype).
 | `Assets/Scripts/Core/LaneSystem.cs` | Lane geometry (lane X positions, player line, spawn line). Draws gizmos in the Scene view. |
 | `Assets/Scripts/Player/PlayerController.cs` | 3-lane movement: keyboard (A/D, ←/→), swipe, tap-to-lane. Raises `LaneChanged`. |
 | `Assets/Scripts/Player/PlayerSquad.cs` | Soldier count = health. Ends the round at 0. |
+| `Assets/Scripts/Editor/GrayboxSceneBuilder.cs` | Editor menu **Sector Cleanse → Build Graybox Scene**: generates the whole test scene in one click. |
 
 ## Graybox scene setup
 
-1. **Camera**: Main Camera, Orthographic, size ~6, position `(0, 0, -10)`.
-2. **GameManager**: empty GameObject → add `GameManager`.
-3. **MenuRoot**: Canvas with a "Deploy" button. Button `OnClick` → `GameManager.StartRound`.
-   Assign it to `GameManager.menuRoot`.
-4. **GameplayRoot**: empty GameObject. Assign to `GameManager.gameplayRoot`. Under it:
-   - **Lanes**: empty GameObject at `(0, 0, 0)` → add `LaneSystem` (3 lanes, spacing 2, player line −4, spawn line 6).
-   - **Player**: a Sprite (Square) → add `PlayerController` and `PlayerSquad`.
-5. *(Optional)* **GameOverRoot**: Canvas with "Squad wiped" text. Assign to `GameManager.gameOverRoot`.
+In Unity: **Sector Cleanse → Build Graybox Scene** (top menu bar).
 
-Tip: tick `Auto Start Round` on the GameManager to skip the menu while testing.
+This generates `Assets/Scenes/Graybox.unity` with the camera, GameManager, lanes,
+player, start menu (DEPLOY button) and game-over overlay already wired up, and adds
+it to the build settings. Re-running it rebuilds the scene from scratch.
+
+Then press **Play → DEPLOY** and move with A/D, the arrow keys, or by clicking a lane.
 Test the death loop without enemies via the `PlayerSquad` component's context menu
 (⋮ → *Debug/Take 1 Damage*) in Play Mode.
 
