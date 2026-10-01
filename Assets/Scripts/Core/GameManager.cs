@@ -63,6 +63,9 @@ namespace SectorCleanse.Core
         /// <summary>Persistent money, spent in the start menu on permanent upgrades.</summary>
         public int BankedMoney { get; private set; }
 
+        /// <summary>Result of the most recently finished round (read by the game-over screen).</summary>
+        public RoundResult LastRoundResult { get; private set; }
+
         // ------------------------------------------------------------------
         // Events
         // ------------------------------------------------------------------
@@ -142,6 +145,7 @@ namespace SectorCleanse.Core
             if (!IsPlaying) return;
 
             var result = new RoundResult(RoundTime, RoundMoney);
+            LastRoundResult = result;
             AddBankedMoney(RoundMoney);
 
             SetState(GameState.GameOver);

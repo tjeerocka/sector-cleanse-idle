@@ -20,9 +20,10 @@ namespace SectorCleanse.EditorTools
     ///  * an orthographic 2D camera;
     ///  * GameManager with all scene roots wired up;
     ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips), Player (movement,
-    ///    squad, weapon), EnemySpawner and HUD;
-    ///  * MenuRoot canvas with a DEPLOY button hooked to GameManager.StartRound;
-    ///  * GameOverRoot overlay;
+    ///    squad + soldier formation, weapon), EnemySpawner and HUD;
+    ///  * MenuRoot canvas: bank total, deploy stats and a DEPLOY button hooked to
+    ///    GameManager.StartRound;
+    ///  * GameOverRoot overlay with the round summary;
     ///  * an EventSystem matching the project's active input handling.
     ///
     /// Safe to re-run: it always generates a fresh scene, so tweak values in the
@@ -41,8 +42,10 @@ namespace SectorCleanse.EditorTools
         private static readonly Color PlayerColor = new Color(0.2f, 0.9f, 0.35f);
         private static readonly Color ButtonColor = new Color(0.2f, 0.75f, 0.35f);
 
-        /// <summary>Graybox starting squad size (soldiers = health) so a single leak isn't instant death.</summary>
-        private const int StartingSoldiers = 10;
+        private static readonly Color SoldierColor = new Color(1f, 0.55f, 0.1f);
+
+        /// <summary>Graybox starting squad: the player + 4 soldiers (soldiers = health and firepower).</summary>
+        private const int StartingSoldiers = 5;
 
         [MenuItem("Sector Cleanse/Build Graybox Scene")]
         public static void Build()
@@ -80,11 +83,14 @@ namespace SectorCleanse.EditorTools
             playerRenderer.sortingOrder = 10;
             PlayerController controller = playerGo.AddComponent<PlayerController>();
             PlayerSquad squad = playerGo.AddComponent<PlayerSquad>();
+            SquadFormation formation = playerGo.AddComponent<SquadFormation>();
             Weapon weapon = playerGo.AddComponent<Weapon>();
 
             SetRef(controller, "laneSystem", lanes);
             SetRef(controller, "worldCamera", cam);
             SetInt(squad, "startingSoldiers", StartingSoldiers);
+            SetRef(formation, "soldierSprite", square);
+            SetColor(formation, "soldierColor", SoldierColor);
             SetRef(weapon, "laneSystem", lanes);
             SetRef(weapon, "bulletSprite", square);
 
@@ -96,10 +102,10 @@ namespace SectorCleanse.EditorTools
             SetRef(spawner, "squad", squad);
             SetRef(spawner, "enemySprite", square);
 
-            CreateHud(gameplayRoot.transform, squad);
+            CreateHud(gameplayRoot.transform, squad, weapon);
 
             // --- UI ---------------------------------------------------------------
-            GameObject menuRoot = CreateMenu(gameManager);
+            GameObject menuRoot = CreateMenu(gameManager, weapon, squad);
             GameObject gameOverRoot = CreateGameOverOverlay();
             CreateEventSystem();
 
@@ -169,12 +175,25 @@ namespace SectorCleanse.EditorTools
             lineRenderer.sortingOrder = -5;
         }
 
-        private static GameObject CreateMenu(GameManager gameManager)
+        private static GameObject CreateMenu(GameManager gameManager, Weapon weapon, PlayerSquad squad)
         {
             Canvas canvas = CreateCanvas("MenuRoot", 0);
 
             CreateText(canvas.transform, "Title", "SECTOR CLEANSE\nIDLE", 90,
-                new Vector2(0f, 400f), new Vector2(1000f, 300f));
+                new Vector2(0f, 500f), new Vector2(1000f, 300f));
+
+            Text bankLabel = CreateText(canvas.transform, "Bank", "BANK $0", 72,
+                new Vector2(0f, 220f), new Vector2(1000f, 120f));
+            bankLabel.color = new Color(1f, 0.85f, 0.3f);
+
+            Text statsLabel = CreateText(canvas.transform, "Stats", "", 40,
+                new Vector2(0f, -340f), new Vector2(1000f, 160f));
+
+            MenuView menuView = canvas.gameObject.AddComponent<MenuView>();
+            SetRef(menuView, "bankLabel", bankLabel);
+            SetRef(menuView, "statsLabel", statsLabel);
+            SetRef(menuView, "weapon", weapon);
+            SetRef(menuView, "squad", squad);
 
             var buttonGo = new GameObject("DeployButton", typeof(RectTransform), typeof(Image), typeof(Button));
             buttonGo.transform.SetParent(canvas.transform, false);
@@ -197,22 +216,23 @@ namespace SectorCleanse.EditorTools
         }
 
         /// <summary>Top-of-screen HUD; lives under GameplayRoot so it hides with the round.</summary>
-        private static void CreateHud(Transform gameplayRoot, PlayerSquad squad)
+        private static void CreateHud(Transform gameplayRoot, PlayerSquad squad, Weapon weapon)
         {
             Canvas canvas = CreateCanvas("HUD", 5);
             canvas.transform.SetParent(gameplayRoot, false);
 
-            Text label = CreateText(canvas.transform, "Stats", "", 48, Vector2.zero, Vector2.zero);
+            Text label = CreateText(canvas.transform, "Stats", "", 40, Vector2.zero, Vector2.zero);
             var rt = (RectTransform)label.transform;
             rt.anchorMin = new Vector2(0f, 1f);
             rt.anchorMax = new Vector2(1f, 1f);
             rt.pivot = new Vector2(0.5f, 1f);
             rt.anchoredPosition = new Vector2(0f, -40f);
-            rt.sizeDelta = new Vector2(0f, 100f);
+            rt.sizeDelta = new Vector2(0f, 130f);
 
             HudView hud = canvas.gameObject.AddComponent<HudView>();
             SetRef(hud, "label", label);
             SetRef(hud, "squad", squad);
+            SetRef(hud, "weapon", weapon);
         }
 
         private static GameObject CreateGameOverOverlay()
@@ -225,7 +245,14 @@ namespace SectorCleanse.EditorTools
             dim.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.7f);
 
             CreateText(canvas.transform, "Message", "SQUAD WIPED", 100,
-                Vector2.zero, new Vector2(1000f, 200f)).color = new Color(1f, 0.35f, 0.3f);
+                new Vector2(0f, 200f), new Vector2(1000f, 200f)).color = new Color(1f, 0.35f, 0.3f);
+
+            Text summary = CreateText(canvas.transform, "Summary", "", 56,
+                new Vector2(0f, -80f), new Vector2(1000f, 300f));
+            summary.color = new Color(1f, 0.85f, 0.3f);
+
+            GameOverView view = canvas.gameObject.AddComponent<GameOverView>();
+            SetRef(view, "summaryLabel", summary);
 
             return canvas.gameObject;
         }
@@ -297,6 +324,19 @@ namespace SectorCleanse.EditorTools
                 return;
             }
             prop.objectReferenceValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetColor(Object target, string fieldName, Color value)
+        {
+            var so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null)
+            {
+                Debug.LogError($"[Sector Cleanse] Field '{fieldName}' not found on {target.GetType().Name}.");
+                return;
+            }
+            prop.colorValue = value;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 

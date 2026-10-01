@@ -1,10 +1,13 @@
 using SectorCleanse.Core;
+using SectorCleanse.Player;
 using UnityEngine;
 
 namespace SectorCleanse.Combat
 {
     /// <summary>
-    /// Auto-fires bullets straight up from its transform while a round is running.
+    /// Auto-fires bullets straight up while a round is running: one from the player
+    /// and, if a <see cref="SquadFormation"/> is present, one from every visible
+    /// soldier in the same volley (soldiers = extra firepower).
     ///
     /// Stats are split into a base value (set by meta-upgrades via
     /// <see cref="SetBaseStats"/>) and per-round multipliers (for buffs/debuffs such
@@ -37,15 +40,22 @@ namespace SectorCleanse.Combat
 
         public int Damage => Mathf.Max(1, Mathf.RoundToInt(baseDamage * DamageMultiplier));
         public float FireRate => Mathf.Max(0.1f, baseFireRate * FireRateMultiplier);
+        public float BulletSpeed => bulletSpeed;
 
         private LaneSystem Lanes => laneSystem ? laneSystem : LaneSystem.Instance;
 
         private Transform _bulletContainer;
+        private SquadFormation _formation;
         private float _cooldown;
 
         // ------------------------------------------------------------------
         // Unity lifecycle
         // ------------------------------------------------------------------
+
+        private void Awake()
+        {
+            _formation = GetComponent<SquadFormation>();
+        }
 
         private void OnEnable()
         {
@@ -64,7 +74,7 @@ namespace SectorCleanse.Combat
             _cooldown -= Time.deltaTime;
             if (_cooldown > 0f) return;
 
-            Fire();
+            FireVolley();
             _cooldown = 1f / FireRate;
         }
 
@@ -94,11 +104,21 @@ namespace SectorCleanse.Combat
                 Destroy(_bulletContainer.GetChild(i).gameObject);
         }
 
-        private void Fire()
+        private void FireVolley()
+        {
+            FireBullet(transform.position + Vector3.up * 0.5f);
+
+            if (!_formation) return;
+            var soldiers = _formation.ActiveSoldiers;
+            for (int i = 0; i < soldiers.Count; i++)
+                FireBullet(soldiers[i].position + Vector3.up * 0.2f);
+        }
+
+        private void FireBullet(Vector3 origin)
         {
             var go = new GameObject("Bullet");
             go.transform.SetParent(GetBulletContainer(), false);
-            go.transform.position = transform.position + Vector3.up * 0.5f;
+            go.transform.position = origin;
             go.transform.localScale = new Vector3(bulletSize.x, bulletSize.y, 1f);
 
             var sr = go.AddComponent<SpriteRenderer>();
