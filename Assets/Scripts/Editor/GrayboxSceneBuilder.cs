@@ -1,6 +1,7 @@
 using System.IO;
 using SectorCleanse.Combat;
 using SectorCleanse.Core;
+using SectorCleanse.Meta;
 using SectorCleanse.Player;
 using SectorCleanse.UI;
 using UnityEditor;
@@ -21,8 +22,8 @@ namespace SectorCleanse.EditorTools
     ///  * GameManager with all scene roots wired up;
     ///  * GameplayRoot → Lanes (LaneSystem + visible lane strips), Player (movement,
     ///    squad + soldier formation, weapon), EnemySpawner and HUD;
-    ///  * MenuRoot canvas: bank total, deploy stats and a DEPLOY button hooked to
-    ///    GameManager.StartRound;
+    ///  * MenuRoot canvas: bank total, deploy stats, a DEPLOY button hooked to
+    ///    GameManager.StartRound and the upgrade shop (UpgradeShop on GameManager);
     ///  * GameOverRoot overlay with the round summary;
     ///  * an EventSystem matching the project's active input handling.
     ///
@@ -44,8 +45,8 @@ namespace SectorCleanse.EditorTools
 
         private static readonly Color SoldierColor = new Color(1f, 0.55f, 0.1f);
 
-        /// <summary>Graybox starting squad: the player + 4 soldiers (soldiers = health and firepower).</summary>
-        private const int StartingSoldiers = 5;
+        /// <summary>Base squad: just the player. Extra soldiers are bought in the menu shop.</summary>
+        private const int StartingSoldiers = 1;
 
         [MenuItem("Sector Cleanse/Build Graybox Scene")]
         public static void Build()
@@ -104,8 +105,12 @@ namespace SectorCleanse.EditorTools
 
             CreateHud(gameplayRoot.transform, squad, weapon);
 
+            // Meta-progression lives on the GameManager object (persists across rounds).
+            UpgradeShop shop = gameManager.gameObject.AddComponent<UpgradeShop>();
+            SetRef(shop, "squad", squad);
+
             // --- UI ---------------------------------------------------------------
-            GameObject menuRoot = CreateMenu(gameManager, weapon, squad);
+            GameObject menuRoot = CreateMenu(gameManager, weapon, squad, shop);
             GameObject gameOverRoot = CreateGameOverOverlay();
             CreateEventSystem();
 
@@ -175,64 +180,79 @@ namespace SectorCleanse.EditorTools
             lineRenderer.sortingOrder = -5;
         }
 
-        private static GameObject CreateMenu(GameManager gameManager, Weapon weapon, PlayerSquad squad)
+        private static GameObject CreateMenu(GameManager gameManager, Weapon weapon, PlayerSquad squad,
+            UpgradeShop shop)
         {
             Canvas canvas = CreateCanvas("MenuRoot", 0);
 
             CreateText(canvas.transform, "Title", "SECTOR CLEANSE\nIDLE", 90,
-                new Vector2(0f, 500f), new Vector2(1000f, 300f));
+                new Vector2(0f, 650f), new Vector2(1000f, 300f));
 
             Text bankLabel = CreateText(canvas.transform, "Bank", "BANK $0", 72,
-                new Vector2(0f, 220f), new Vector2(1000f, 120f));
+                new Vector2(0f, 430f), new Vector2(1000f, 120f));
             bankLabel.color = new Color(1f, 0.85f, 0.3f);
 
             Text statsLabel = CreateText(canvas.transform, "Stats", "", 40,
-                new Vector2(0f, -340f), new Vector2(1000f, 160f));
+                new Vector2(0f, 270f), new Vector2(1000f, 140f));
 
             MenuView menuView = canvas.gameObject.AddComponent<MenuView>();
             SetRef(menuView, "bankLabel", bankLabel);
             SetRef(menuView, "statsLabel", statsLabel);
             SetRef(menuView, "weapon", weapon);
             SetRef(menuView, "squad", squad);
+            SetRef(menuView, "shop", shop);
 
-            var buttonGo = new GameObject("DeployButton", typeof(RectTransform), typeof(Image), typeof(Button));
-            buttonGo.transform.SetParent(canvas.transform, false);
-            var rt = (RectTransform)buttonGo.transform;
-            rt.anchoredPosition = new Vector2(0f, -100f);
-            rt.sizeDelta = new Vector2(500f, 160f);
+            Button deploy = CreateButton(canvas.transform, "DeployButton", "DEPLOY", 64,
+                new Vector2(0f, 50f), new Vector2(500f, 160f), ButtonColor);
+            UnityEventTools.AddPersistentListener(deploy.onClick, gameManager.StartRound);
 
-            var image = buttonGo.GetComponent<Image>();
-            image.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
-            image.type = Image.Type.Sliced;
-            image.color = ButtonColor;
+            // --- Shop ---
+            CreateText(canvas.transform, "ShopHeader", "SHOP", 56,
+                new Vector2(0f, -200f), new Vector2(1000f, 100f));
 
-            Text label = CreateText(buttonGo.transform, "Label", "DEPLOY", 64, Vector2.zero, Vector2.zero);
-            Stretch((RectTransform)label.transform);
-
-            var button = buttonGo.GetComponent<Button>();
-            UnityEventTools.AddPersistentListener(button.onClick, gameManager.StartRound);
+            Button recruit = CreateButton(canvas.transform, "RecruitSoldierButton", "", 44,
+                new Vector2(0f, -360f), new Vector2(760f, 170f), new Color(0.95f, 0.55f, 0.15f));
+            UpgradeButtonView recruitView = recruit.gameObject.AddComponent<UpgradeButtonView>();
+            SetRef(recruitView, "shop", shop);
+            SetString(recruitView, "upgradeId", UpgradeShop.RecruitSoldierId);
+            SetRef(recruitView, "label", recruit.GetComponentInChildren<Text>());
 
             return canvas.gameObject;
         }
 
-        /// <summary>Top-of-screen HUD; lives under GameplayRoot so it hides with the round.</summary>
+        /// <summary>
+        /// Side-column HUD (money left, combat stats right) so it never covers the lanes.
+        /// Lives under GameplayRoot so it hides with the round.
+        /// </summary>
         private static void CreateHud(Transform gameplayRoot, PlayerSquad squad, Weapon weapon)
         {
             Canvas canvas = CreateCanvas("HUD", 5);
             canvas.transform.SetParent(gameplayRoot, false);
 
-            Text label = CreateText(canvas.transform, "Stats", "", 40, Vector2.zero, Vector2.zero);
-            var rt = (RectTransform)label.transform;
-            rt.anchorMin = new Vector2(0f, 1f);
-            rt.anchorMax = new Vector2(1f, 1f);
-            rt.pivot = new Vector2(0.5f, 1f);
-            rt.anchoredPosition = new Vector2(0f, -40f);
-            rt.sizeDelta = new Vector2(0f, 130f);
+            Text left = CreateCornerText(canvas.transform, "LeftStats", rightSide: false);
+            Text right = CreateCornerText(canvas.transform, "RightStats", rightSide: true);
 
             HudView hud = canvas.gameObject.AddComponent<HudView>();
-            SetRef(hud, "label", label);
+            SetRef(hud, "leftLabel", left);
+            SetRef(hud, "rightLabel", right);
             SetRef(hud, "squad", squad);
             SetRef(hud, "weapon", weapon);
+        }
+
+        private static Text CreateCornerText(Transform parent, string name, bool rightSide)
+        {
+            Text text = CreateText(parent, name, "", 40, Vector2.zero, Vector2.zero);
+            text.alignment = rightSide ? TextAnchor.UpperRight : TextAnchor.UpperLeft;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            float x = rightSide ? 1f : 0f;
+            var rt = (RectTransform)text.transform;
+            rt.anchorMin = new Vector2(x, 1f);
+            rt.anchorMax = new Vector2(x, 1f);
+            rt.pivot = new Vector2(x, 1f);
+            rt.anchoredPosition = new Vector2(rightSide ? -40f : 40f, -40f);
+            rt.sizeDelta = new Vector2(420f, 240f);
+            return text;
         }
 
         private static GameObject CreateGameOverOverlay()
@@ -286,6 +306,25 @@ namespace SectorCleanse.EditorTools
             return canvas;
         }
 
+        private static Button CreateButton(Transform parent, string name, string text, int fontSize,
+            Vector2 anchoredPosition, Vector2 size, Color color)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchoredPosition = anchoredPosition;
+            rt.sizeDelta = size;
+
+            var image = go.GetComponent<Image>();
+            image.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+            image.type = Image.Type.Sliced;
+            image.color = color;
+
+            Text label = CreateText(go.transform, "Label", text, fontSize, Vector2.zero, Vector2.zero);
+            Stretch((RectTransform)label.transform);
+            return go.GetComponent<Button>();
+        }
+
         private static Text CreateText(Transform parent, string name, string content, int fontSize,
             Vector2 anchoredPosition, Vector2 size)
         {
@@ -337,6 +376,19 @@ namespace SectorCleanse.EditorTools
                 return;
             }
             prop.colorValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetString(Object target, string fieldName, string value)
+        {
+            var so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null)
+            {
+                Debug.LogError($"[Sector Cleanse] Field '{fieldName}' not found on {target.GetType().Name}.");
+                return;
+            }
+            prop.stringValue = value;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 

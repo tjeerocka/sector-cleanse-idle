@@ -186,6 +186,15 @@ namespace SectorCleanse.Core
             return true;
         }
 
+#if UNITY_EDITOR
+        // Right-click the component header to test the shop without grinding rounds.
+        [ContextMenu("Debug/Add $100 to bank")]
+        private void DebugAddMoney() => AddBankedMoney(100);
+
+        [ContextMenu("Debug/Reset bank to $0")]
+        private void DebugResetMoney() => AddBankedMoney(-BankedMoney);
+#endif
+
         private void AddBankedMoney(int delta)
         {
             if (delta == 0) return;

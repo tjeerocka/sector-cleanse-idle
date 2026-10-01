@@ -1,5 +1,6 @@
 using SectorCleanse.Combat;
 using SectorCleanse.Core;
+using SectorCleanse.Meta;
 using SectorCleanse.Player;
 using UnityEngine;
 using UnityEngine.UI;
@@ -8,7 +9,7 @@ namespace SectorCleanse.UI
 {
     /// <summary>
     /// Start-menu info: banked money and the stats you'll deploy with.
-    /// The upgrade shop (meta-progression) will plug in next to this.
+    /// Refreshes the stats after every shop purchase.
     /// </summary>
     public class MenuView : MonoBehaviour
     {
@@ -21,6 +22,9 @@ namespace SectorCleanse.UI
         [Tooltip("Optional. Found automatically if left empty (also when inactive).")]
         [SerializeField] private PlayerSquad squad;
 
+        [Tooltip("Optional. Found automatically if left empty.")]
+        [SerializeField] private UpgradeShop shop;
+
         private int _shownBank = -1;
 
         private void Awake()
@@ -28,13 +32,19 @@ namespace SectorCleanse.UI
             // The player lives under GameplayRoot, which is inactive while the menu is up.
             if (!weapon) weapon = FindAnyObjectByType<Weapon>(FindObjectsInactive.Include);
             if (!squad) squad = FindAnyObjectByType<PlayerSquad>(FindObjectsInactive.Include);
+            if (!shop) shop = FindAnyObjectByType<UpgradeShop>();
         }
 
         private void OnEnable()
         {
-            // Stats only change between rounds (upgrades), so refresh whenever the menu opens.
+            if (shop) shop.UpgradesChanged += RefreshStats;
             _shownBank = -1;
             RefreshStats();
+        }
+
+        private void OnDisable()
+        {
+            if (shop) shop.UpgradesChanged -= RefreshStats;
         }
 
         private void Update()

@@ -20,14 +20,18 @@ namespace SectorCleanse.Player
     [DisallowMultipleComponent]
     public class PlayerSquad : MonoBehaviour
     {
-        [Tooltip("Soldiers at round start, including the player. Meta-upgrades raise this.")]
+        [Tooltip("Base soldiers at round start, including the player. Shop upgrades add to this.")]
         [SerializeField, Min(1)] private int startingSoldiers = 1;
 
         [Tooltip("Hard cap on squad size (keeps the graybox readable; 0 = unlimited).")]
         [SerializeField, Min(0)] private int maxSoldiers;
 
         public int SoldierCount { get; private set; }
-        public int StartingSoldiers => startingSoldiers;
+
+        /// <summary>Soldiers at round start: base + permanently bought soldiers.</summary>
+        public int StartingSoldiers => startingSoldiers + _bonusSoldiers;
+
+        private int _bonusSoldiers;
         public bool IsAlive => SoldierCount > 0;
 
         /// <summary>Raised with the new count whenever it changes.</summary>
@@ -64,6 +68,9 @@ namespace SectorCleanse.Player
         /// <summary>Set by the upgrade/meta system before a round starts.</summary>
         public void SetStartingSoldiers(int count) => startingSoldiers = Mathf.Max(1, count);
 
+        /// <summary>Permanently bought soldiers (set by the upgrade shop). Applies from the next round.</summary>
+        public void SetBonusSoldiers(int count) => _bonusSoldiers = Mathf.Max(0, count);
+
         public void AddSoldiers(int amount)
         {
             if (amount <= 0 || !IsAlive) return;
@@ -90,7 +97,7 @@ namespace SectorCleanse.Player
 
         private void ResetSquad()
         {
-            int count = startingSoldiers;
+            int count = StartingSoldiers;
             if (maxSoldiers > 0) count = Mathf.Min(count, maxSoldiers);
             SetCount(count);
         }
